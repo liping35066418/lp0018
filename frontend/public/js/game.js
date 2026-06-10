@@ -36,9 +36,20 @@ class ParkourGame {
     this.pendingActions = {
       jump: false,
       crouch: false,
-      laneChange: 0
+      laneChange: 0,
+      dash: false
     };
     this.lastCrouchState = false;
+    
+    this.upKeyHoldTime = 0;
+    this.lastJumpTime = 0;
+    this.dashDoubleTapWindow = 300;
+    this.dashLongPressThreshold = 200;
+    this.upKeyPressed = false;
+    
+    this.menuSortMode = 'score';
+    this.gameoverSortMode = 'score';
+    this.lastGameResult = null;
     
     this.particles = [];
     this.shakeIntensity = 0;
@@ -132,6 +143,7 @@ class ParkourGame {
     
     const touchJump = document.getElementById('touch-jump');
     const touchCrouch = document.getElementById('touch-crouch');
+    const touchDash = document.getElementById('touch-dash');
     const touchLeft = document.getElementById('touch-left');
     const touchRight = document.getElementById('touch-right');
     
@@ -145,6 +157,10 @@ class ParkourGame {
       touchCrouch.addEventListener('mousedown', (e) => { e.preventDefault(); this.setCrouch(true); });
       touchCrouch.addEventListener('mouseup', (e) => { e.preventDefault(); this.setCrouch(false); });
     }
+    if (touchDash) {
+      touchDash.addEventListener('touchstart', (e) => { e.preventDefault(); this.triggerDash(); });
+      touchDash.addEventListener('mousedown', (e) => { e.preventDefault(); this.triggerDash(); });
+    }
     if (touchLeft) {
       touchLeft.addEventListener('touchstart', (e) => { e.preventDefault(); this.triggerLaneChange(-1); });
       touchLeft.addEventListener('mousedown', (e) => { e.preventDefault(); this.triggerLaneChange(-1); });
@@ -153,6 +169,10 @@ class ParkourGame {
       touchRight.addEventListener('touchstart', (e) => { e.preventDefault(); this.triggerLaneChange(1); });
       touchRight.addEventListener('mousedown', (e) => { e.preventDefault(); this.triggerLaneChange(1); });
     }
+    
+    document.querySelectorAll('.sort-tab').forEach(tab => {
+      tab.addEventListener('click', () => this.handleSortTabClick(tab));
+    });
   }
   
   triggerJump() {
@@ -179,6 +199,15 @@ class ParkourGame {
     this.actions.push({ time: this.elapsedGameTime, type: 'laneChange', value: direction });
   }
   
+  triggerDash() {
+    if (this.gameState !== 'playing') return;
+    if (!this.state) return;
+    const p = this.state.player;
+    if (p.isDashing || p.dashCooldownTimer > 0) return;
+    this.pendingActions.dash = true;
+    this.actions.push({ time: this.elapsedGameTime, type: 'dash' });
+  }
+  
   handleKeyDown(e) {
     if (this.gameState !== 'playing') return;
     
@@ -187,7 +216,21 @@ class ParkourGame {
       case 'ArrowUp':
       case 'KeyW':
         e.preventDefault();
-        this.triggerJump();
+        const now = performance.now();
+        const isDoubleTap = (now - this.lastJumpTime) < this.dashDoubleTapWindow;
+        if (isDoubleTap && !this.state.player.isDashing && this.state.player.dashCooldownTimer <= 0) {
+          this.triggerDash();
+          this.lastJumpTime = 0;
+        } else {
+          if (!this.state.player.isJumping) {
+            this.triggerJump();
+          }
+          this.lastJumpTime = now;
+        }
+        if (e.code === 'ArrowUp' || e.code === 'KeyW') {
+          this.upKeyPressed = true;
+          this.upKeyHoldTime = 0;
+        }
         break;
       case 'ArrowDown':
       case 'KeyS':
@@ -204,6 +247,11 @@ class ParkourGame {
         e.preventDefault();
         this.triggerLaneChange(1);
         break;
+      case 'ShiftLeft':
+      case 'ShiftRight':
+        e.preventDefault();
+        this.triggerDash();
+        break;
     }
   }
   
@@ -212,6 +260,11 @@ class ParkourGame {
       case 'ArrowDown':
       case 'KeyS':
         this.setCrouch(false);
+        break;
+      case 'ArrowUp':
+      case 'KeyW':
+        this.upKeyPressed = false;
+        this.upKeyHoldTime = 0;
         break;
     }
   }
@@ -256,6 +309,10 @@ class ParkourGame {
       } else {
         this.triggerLaneChange(-1);
       }
+    } else {
+      if (diffY > 0) {
+        this.triggerDash();
+      }
     }
   }
   
@@ -286,8 +343,11 @@ class ParkourGame {
       
       this.actions = [];
       this.elapsedGameTime = 0;
-      this.pendingActions = { jump: false, crouch: false, laneChange: 0 };
+      this.pendingActions = { jump: false, crouch: false, laneChange: 0, dash: false };
       this.lastCrouchState = false;
+      this.upKeyHoldTime = 0;
+      this.upKeyPressed = false;
+      this.lastJumpTime = 0;
       this.particles = [];
       this.shakeIntensity = 0;
       this.accumulator = 0;
@@ -316,6 +376,8 @@ class ParkourGame {
       speed: cfg.baseSpeed,
       timeLeft: cfg.gameTime,
       difficultyLevel: 1,
+      dashCount: 0,
+      dashBreakCount: 0,
       player: {
         x: 120,
         y: 0,
@@ -329,7 +391,10 @@ class ParkourGame {
         shield: false,
         lane: 0,
         animFrame: 0,
-        animTimer: 0
+        animTimer: 0,
+        isDashing: false,
+        dashTimer: 0,
+        dashCooldownTimer: 0
       },
       obstacles: [],
       items: [],
@@ -474,6 +539,9 @@ class ParkourGame {
   }
   
   handleObstacleCollision(player, obstacle) {
+    if (player.isDashing) {
+      return { hit: false, scoreGained: obstacle.score, dashBreak: true };
+    }
     if (player.invincible || player.shield) {
       if (player.shield) {
         player.shield = false;
@@ -515,8 +583,16 @@ class ParkourGame {
     
     if (state.status !== 'playing') return;
     
+    if (this.upKeyPressed) {
+      this.upKeyHoldTime += deltaTime;
+      if (this.upKeyHoldTime >= this.dashLongPressThreshold && !state.player.isDashing && state.player.dashCooldownTimer <= 0) {
+        this.triggerDash();
+        this.upKeyHoldTime = 0;
+      }
+    }
+    
     state.elapsedTime += deltaTime;
-    state.speed = this.getCurrentSpeed(state.elapsedTime);
+    const baseSpeed = this.getCurrentSpeed(state.elapsedTime);
     state.difficultyLevel = this.getDifficultyLevel(state.elapsedTime);
     state.timeLeft = Math.max(0, cfg.gameTime - Math.floor(state.elapsedTime / 1000));
     
@@ -533,7 +609,26 @@ class ParkourGame {
       if (action.laneChange) {
         player.lane = Math.max(-1, Math.min(1, player.lane + action.laneChange));
       }
+      if (action.dash && !player.isDashing && player.dashCooldownTimer <= 0) {
+        player.isDashing = true;
+        player.dashTimer = cfg.dashDuration;
+        player.dashCooldownTimer = cfg.dashCooldown + cfg.dashDuration;
+        state.dashCount++;
+        this.createDashParticles();
+      }
     }
+    
+    if (player.isDashing) {
+      player.dashTimer -= deltaTime;
+      if (player.dashTimer <= 0) {
+        player.isDashing = false;
+      }
+    }
+    if (player.dashCooldownTimer > 0) {
+      player.dashCooldownTimer -= deltaTime;
+    }
+    
+    state.speed = player.isDashing ? baseSpeed * cfg.dashSpeedMultiplier : baseSpeed;
     
     if (player.invincibleTimer > 0) {
       player.invincibleTimer -= deltaTime;
@@ -605,7 +700,23 @@ class ParkourGame {
             state.status = 'gameover';
           }
         } else {
-          state.score += this.calculateScore(result.scoreGained, state.elapsedTime, state.combo);
+          let gainedScore = result.scoreGained;
+          if (result.dashBreak) {
+            gainedScore = obs.score * cfg.dashBreakScoreMultiplier;
+            state.dashBreakCount++;
+            this.createDashBreakParticles(obs.x + obs.width / 2, obs.y + obs.height / 2);
+            state.effects.push({
+              id: Date.now(),
+              type: 'collect',
+              x: obs.x + obs.width / 2,
+              y: obs.y + obs.height / 2,
+              color: '#ff6b00',
+              text: `💥 +${gainedScore}`,
+              duration: 900,
+              startTime: state.elapsedTime
+            });
+          }
+          state.score += this.calculateScore(gainedScore, state.elapsedTime, state.combo);
           state.combo++;
         }
         return false;
@@ -708,36 +819,126 @@ class ParkourGame {
       const res = await fetch(`${this.backendUrl}/highscores`);
       const data = await res.json();
       if (data.success) {
-        this.renderHighScores(data.data, 'highscores-list');
+        this.menuSortMode = 'score';
+        const tabs = document.querySelectorAll('#menu-sort-tabs .sort-tab');
+        tabs.forEach(t => t.classList.toggle('active', t.dataset.sort === 'score'));
+        this.renderHighScores(data.data, 'highscores-list', 'score');
       }
     } catch (err) {
       console.error('加载排行榜失败:', err);
     }
   }
   
-  renderHighScores(scores, elementId) {
+  sortScores(scores, sortMode) {
+    const sorted = [...scores];
+    if (sortMode === 'time') {
+      sorted.sort((a, b) => (b.timeSurvived || 0) - (a.timeSurvived || 0));
+    } else {
+      sorted.sort((a, b) => b.score - a.score);
+    }
+    return sorted;
+  }
+  
+  renderHighScores(scores, elementId, sortMode = 'score') {
     const container = document.getElementById(elementId);
     if (!scores || scores.length === 0) {
       container.innerHTML = '<p class="empty">暂无记录，快来创造第一名！</p>';
       return;
     }
     
-    container.innerHTML = scores.map((s, i) => `
-      <div class="highscore-item">
+    const sorted = this.sortScores(scores, sortMode);
+    
+    container.innerHTML = sorted.map((s, i) => `
+      <div class="highscore-item" data-name="${s.name}" data-score="${s.score}" data-time="${s.timeSurvived || 0}">
         <div class="highscore-rank">
           <span class="rank-num ${i < 3 ? `rank-${i+1}` : 'rank-other'}">${i + 1}</span>
           <span class="player-nickname">${s.name}</span>
         </div>
-        <span class="hs-score">${s.score.toLocaleString()}</span>
+        <div class="hs-info">
+          <span class="hs-score">${s.score.toLocaleString()}</span>
+          <span class="hs-time">⏱ ${s.timeSurvived || 0}s</span>
+        </div>
       </div>
     `).join('');
   }
   
+  highlightCurrentPlayer(elementId, sortMode) {
+    const container = document.getElementById(elementId);
+    const items = container.querySelectorAll('.highscore-item');
+    items.forEach(it => it.classList.remove('current'));
+    
+    if (!this.lastGameResult || elementId !== 'gameover-highscores-list') return;
+    
+    const playerName = this.lastGameResult.playerName;
+    const playerScore = this.lastGameResult.finalScore;
+    const playerTime = this.lastGameResult.timeSurvived;
+    
+    const sortedItems = Array.from(items);
+    let bestMatch = -1;
+    let bestMatchScore = -Infinity;
+    
+    sortedItems.forEach((item, idx) => {
+      const name = item.dataset.name;
+      const score = parseInt(item.dataset.score);
+      const time = parseInt(item.dataset.time);
+      
+      let matchScore = 0;
+      if (name === playerName) matchScore += 100;
+      if (sortMode === 'score' && score === playerScore) matchScore += 50;
+      if (sortMode === 'time' && time === playerTime) matchScore += 50;
+      if (score === playerScore && time === playerTime) matchScore += 200;
+      
+      if (matchScore > bestMatchScore) {
+        bestMatchScore = matchScore;
+        bestMatch = idx;
+      }
+    });
+    
+    if (bestMatch >= 0 && bestMatchScore > 0) {
+      sortedItems[bestMatch].classList.add('current');
+    }
+  }
+  
+  handleSortTabClick(tab) {
+    const sortMode = tab.dataset.sort;
+    const targetId = tab.dataset.target;
+    const tabsContainer = tab.parentElement;
+    
+    tabsContainer.querySelectorAll('.sort-tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    
+    if (targetId === 'highscores-list') {
+      this.menuSortMode = sortMode;
+      fetch(`${this.backendUrl}/highscores`)
+        .then(r => r.json())
+        .then(data => {
+          if (data.success) {
+            this.renderHighScores(data.data, targetId, sortMode);
+          }
+        })
+        .catch(err => console.error('加载排行榜失败:', err));
+    } else if (targetId === 'gameover-highscores-list' && this.lastGameResult) {
+      this.gameoverSortMode = sortMode;
+      this.renderHighScores(this.lastGameResult.highScores, targetId, sortMode);
+      this.highlightCurrentPlayer(targetId, sortMode);
+    }
+  }
+  
   showGameOver(result) {
+    this.lastGameResult = {
+      ...result,
+      playerName: this.playerName,
+      finalScore: result.finalScore,
+      timeSurvived: result.timeSurvived !== undefined ? result.timeSurvived : Math.floor(this.state.elapsedTime / 1000)
+    };
+    
     document.getElementById('final-score').textContent = result.finalScore.toLocaleString();
     document.getElementById('final-rank').textContent = result.rank ? `#${result.rank}` : '#--';
     document.getElementById('final-difficulty').textContent = `Lv.${this.state.difficultyLevel}`;
-    document.getElementById('final-time').textContent = `${Math.floor(this.state.elapsedTime / 1000)}s`;
+    document.getElementById('final-time').textContent = `${this.lastGameResult.timeSurvived}s`;
+    
+    document.getElementById('final-dash-count').textContent = result.dashCount !== undefined ? result.dashCount : this.state.dashCount;
+    document.getElementById('final-dash-break').textContent = result.dashBreakCount !== undefined ? result.dashBreakCount : this.state.dashBreakCount;
     
     const verifyBadge = document.getElementById('verify-badge');
     if (verifyBadge) {
@@ -745,13 +946,12 @@ class ParkourGame {
       verifyBadge.style.color = result.verified ? '#4caf50' : '#ff9800';
     }
     
-    this.renderHighScores(result.highScores, 'gameover-highscores-list');
+    this.gameoverSortMode = 'score';
+    const tabs = document.querySelectorAll('#gameover-sort-tabs .sort-tab');
+    tabs.forEach(t => t.classList.toggle('active', t.dataset.sort === 'score'));
     
-    const list = document.getElementById('gameover-highscores-list');
-    const items = list.querySelectorAll('.highscore-item');
-    if (result.rank && result.rank <= items.length) {
-      items[result.rank - 1].classList.add('current');
-    }
+    this.renderHighScores(result.highScores, 'gameover-highscores-list', 'score');
+    this.highlightCurrentPlayer('gameover-highscores-list', 'score');
     
     this.showOverlay('gameover-screen');
   }
@@ -791,8 +991,38 @@ class ParkourGame {
       comboPanel.classList.remove('active');
     }
     
+    const dashPanel = document.getElementById('dash-panel');
+    const dashBar = document.getElementById('dash-bar');
+    const dashText = document.getElementById('dash-text');
+    const p = this.state.player;
+    const cfg = this.config;
+    
+    dashPanel.classList.remove('ready', 'dashing');
+    dashBar.classList.remove('cooldown');
+    
+    if (p.isDashing) {
+      const progress = Math.max(0, p.dashTimer / cfg.dashDuration);
+      dashBar.style.width = `${progress * 100}%`;
+      dashText.textContent = `冲刺中 ${(p.dashTimer / 1000).toFixed(1)}s`;
+      dashPanel.classList.add('dashing');
+    } else if (p.dashCooldownTimer > 0) {
+      const cdTotal = cfg.dashCooldown;
+      const cdRemaining = Math.max(0, p.dashCooldownTimer - cfg.dashDuration);
+      const progress = 1 - (cdRemaining / cdTotal);
+      dashBar.style.width = `${progress * 100}%`;
+      dashBar.classList.add('cooldown');
+      dashText.textContent = `冷却 ${(cdRemaining / 1000).toFixed(1)}s`;
+    } else {
+      dashBar.style.width = '100%';
+      dashText.textContent = '冲刺就绪';
+      dashPanel.classList.add('ready');
+    }
+    
     const statusPanel = document.getElementById('status-panel');
     let badges = '';
+    if (p.isDashing) {
+      badges += '<span class="status-badge dashing-badge">⚡ 冲刺中</span>';
+    }
     if (this.state.player.invincible) {
       badges += '<span class="status-badge" style="background: linear-gradient(135deg, #ffd700, #ff9800);">⭐ 无敌</span>';
     }
@@ -856,6 +1086,39 @@ class ParkourGame {
         decay: 0.04,
         size: 2 + Math.random() * 3,
         color: '#a0a0a0'
+      });
+    }
+  }
+  
+  createDashParticles() {
+    for (let i = 0; i < 15; i++) {
+      this.particles.push({
+        x: this.state.player.x + this.state.player.width / 2,
+        y: this.state.player.y + this.state.player.height / 2,
+        vx: -5 - Math.random() * 8,
+        vy: (Math.random() - 0.5) * 6,
+        life: 1,
+        decay: 0.03,
+        size: 4 + Math.random() * 5,
+        color: `hsl(${30 + Math.random() * 30}, 100%, ${50 + Math.random() * 20}%)`
+      });
+    }
+  }
+  
+  createDashBreakParticles(x, y) {
+    for (let i = 0; i < 25; i++) {
+      const angle = (Math.PI * 2 * i) / 25;
+      this.particles.push({
+        x: x,
+        y: y,
+        vx: Math.cos(angle) * (3 + Math.random() * 5),
+        vy: Math.sin(angle) * (3 + Math.random() * 5) - 2,
+        life: 1,
+        decay: 0.025,
+        size: 3 + Math.random() * 6,
+        color: i % 2 === 0 
+          ? `hsl(${Math.random() * 30}, 100%, 60%)` 
+          : `hsl(${40 + Math.random() * 20}, 100%, 55%)`
       });
     }
   }
@@ -1029,9 +1292,24 @@ class ParkourGame {
       this.ctx.globalAlpha = 0.5;
     }
     
-    this.ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
-    this.ctx.shadowBlur = 10;
-    this.ctx.shadowOffsetY = 5;
+    if (p.isDashing) {
+      for (let i = 1; i <= 4; i++) {
+        this.ctx.globalAlpha = (0.4 - i * 0.08);
+        this.ctx.fillStyle = `hsl(${30 + i * 10}, 100%, 60%)`;
+        const offsetX = -i * 12;
+        this.roundRect(drawX + 5 + offsetX, drawY + 15, p.width - 10, actualHeight - 30, 8);
+        this.ctx.fill();
+      }
+      this.ctx.globalAlpha = p.invincible && Math.floor(Date.now() / 100) % 2 === 0 ? 0.5 : 1;
+      
+      this.ctx.shadowColor = 'rgba(255, 150, 0, 0.8)';
+      this.ctx.shadowBlur = 25;
+      this.ctx.shadowOffsetX = -10;
+    } else {
+      this.ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+      this.ctx.shadowBlur = 10;
+      this.ctx.shadowOffsetY = 5;
+    }
     
     this.ctx.fillStyle = '#4fc3f7';
     this.roundRect(drawX + 5, drawY + 15, p.width - 10, actualHeight - 30, 8);
@@ -1504,7 +1782,7 @@ class ParkourGame {
       while (this.accumulator >= stepMs) {
         let action = null;
         
-        if (this.pendingActions.jump || this.pendingActions.crouch !== this.lastCrouchState || this.pendingActions.laneChange !== 0) {
+        if (this.pendingActions.jump || this.pendingActions.crouch !== this.lastCrouchState || this.pendingActions.laneChange !== 0 || this.pendingActions.dash) {
           action = { ...this.pendingActions };
         }
         
@@ -1512,6 +1790,7 @@ class ParkourGame {
         
         this.pendingActions.jump = false;
         this.pendingActions.laneChange = 0;
+        this.pendingActions.dash = false;
         
         this.elapsedGameTime += stepMs;
         this.accumulator -= stepMs;

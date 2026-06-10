@@ -24,7 +24,11 @@ class GameEngine {
       difficultyStep: 0.5,
       maxLives: 3,
       gameTime: 120,
-      physicsStep: 16.67
+      physicsStep: 16.67,
+      dashDuration: 1500,
+      dashCooldown: 5000,
+      dashSpeedMultiplier: 2.2,
+      dashBreakScoreMultiplier: 3
     };
     
     this.obstacleTypes = [
@@ -94,6 +98,8 @@ class GameEngine {
       speed: this.config.baseSpeed,
       timeLeft: this.config.gameTime,
       difficultyLevel: 1,
+      dashCount: 0,
+      dashBreakCount: 0,
       player: {
         x: 120,
         y: 0,
@@ -105,7 +111,10 @@ class GameEngine {
         invincible: false,
         invincibleTimer: 0,
         shield: false,
-        lane: 0
+        lane: 0,
+        isDashing: false,
+        dashTimer: 0,
+        dashCooldownTimer: 0
       },
       obstacles: [],
       items: [],
@@ -204,7 +213,7 @@ class GameEngine {
     if (state.status !== 'playing') return state;
     
     state.elapsedTime += deltaTime;
-    state.speed = this.getCurrentSpeed(state.elapsedTime);
+    const baseSpeed = this.getCurrentSpeed(state.elapsedTime);
     state.difficultyLevel = this.getDifficultyLevel(state.elapsedTime);
     state.timeLeft = Math.max(0, this.config.gameTime - Math.floor(state.elapsedTime / 1000));
     
@@ -220,7 +229,25 @@ class GameEngine {
       if (action.laneChange) {
         player.lane = Math.max(-1, Math.min(1, player.lane + action.laneChange));
       }
+      if (action.dash && !player.isDashing && player.dashCooldownTimer <= 0) {
+        player.isDashing = true;
+        player.dashTimer = this.config.dashDuration;
+        player.dashCooldownTimer = this.config.dashCooldown + this.config.dashDuration;
+        state.dashCount++;
+      }
     }
+    
+    if (player.isDashing) {
+      player.dashTimer -= deltaTime;
+      if (player.dashTimer <= 0) {
+        player.isDashing = false;
+      }
+    }
+    if (player.dashCooldownTimer > 0) {
+      player.dashCooldownTimer -= deltaTime;
+    }
+    
+    state.speed = player.isDashing ? baseSpeed * this.config.dashSpeedMultiplier : baseSpeed;
     
     if (player.invincibleTimer > 0) {
       player.invincibleTimer -= deltaTime;
@@ -284,7 +311,12 @@ class GameEngine {
             state.status = 'gameover';
           }
         } else {
-          state.score += this.calculateScore(result.scoreGained, state.elapsedTime, state.combo);
+          let gainedScore = result.scoreGained;
+          if (result.dashBreak) {
+            gainedScore = obs.score * this.config.dashBreakScoreMultiplier;
+            state.dashBreakCount++;
+          }
+          state.score += this.calculateScore(gainedScore, state.elapsedTime, state.combo);
           state.combo++;
         }
         return false;
@@ -353,6 +385,7 @@ class GameEngine {
         if (a.type === 'jump') action.jump = true;
         if (a.type === 'crouch') action.crouch = a.value;
         if (a.type === 'laneChange') action.laneChange = (action.laneChange || 0) + a.value;
+        if (a.type === 'dash') action.dash = true;
         actionIndex++;
       }
       
@@ -363,7 +396,9 @@ class GameEngine {
       score: state.score,
       status: state.status,
       timeSurvived: Math.min(state.elapsedTime, this.config.gameTime * 1000),
-      lives: state.lives
+      lives: state.lives,
+      dashCount: state.dashCount,
+      dashBreakCount: state.dashBreakCount
     };
   }
   
@@ -389,6 +424,9 @@ class GameEngine {
   }
   
   handleObstacleCollision(player, obstacle) {
+    if (player.isDashing) {
+      return { hit: false, scoreGained: obstacle.score, dashBreak: true };
+    }
     if (player.invincible || player.shield) {
       if (player.shield) {
         player.shield = false;
@@ -428,10 +466,13 @@ class GameEngine {
     return this.highScores.slice(0, 10);
   }
   
-  submitHighScore(name, score) {
+  submitHighScore(name, score, timeSurvived, dashCount, dashBreakCount) {
     const entry = {
       name,
       score,
+      timeSurvived: timeSurvived || 0,
+      dashCount: dashCount || 0,
+      dashBreakCount: dashBreakCount || 0,
       date: new Date().toISOString()
     };
     this.highScores.push(entry);

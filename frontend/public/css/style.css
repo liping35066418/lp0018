@@ -151,6 +151,65 @@ html, body {
   transform: scale(0.8);
 }
 
+.dash-panel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(10px);
+  border-radius: 12px;
+  padding: 8px 12px;
+  min-width: 160px;
+}
+
+.dash-icon {
+  font-size: 20px;
+  filter: drop-shadow(0 0 4px rgba(255, 200, 0, 0.8));
+}
+
+.dash-bar-wrap {
+  flex: 1;
+  height: 10px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.dash-bar {
+  height: 100%;
+  width: 100%;
+  background: linear-gradient(90deg, #ff6b00, #ffd700);
+  border-radius: 5px;
+  transition: width 0.1s linear;
+  box-shadow: 0 0 8px rgba(255, 200, 0, 0.6);
+}
+
+.dash-bar.cooldown {
+  background: linear-gradient(90deg, #555, #888);
+  box-shadow: none;
+}
+
+.dash-text {
+  font-size: 11px;
+  color: #fff;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.dash-panel.ready .dash-icon {
+  animation: dashReady 1s infinite;
+}
+
+.dash-panel.dashing {
+  background: linear-gradient(135deg, rgba(255, 107, 0, 0.6), rgba(255, 215, 0, 0.6));
+  border: 1px solid rgba(255, 215, 0, 0.5);
+}
+
+@keyframes dashReady {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.2); }
+}
+
 .status-panel {
   display: flex;
   gap: 8px;
@@ -163,6 +222,11 @@ html, body {
   font-size: 12px;
   color: #fff;
   animation: badgePulse 1s infinite;
+}
+
+.status-badge.dashing-badge {
+  background: linear-gradient(135deg, #ff6b00, #ffd700);
+  color: #1a1a2e;
 }
 
 @keyframes badgePulse {
@@ -362,6 +426,37 @@ html, body {
   text-align: center;
 }
 
+.sort-tabs {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.sort-tab {
+  padding: 6px 16px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.6);
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.sort-tab:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.sort-tab.active {
+  background: linear-gradient(135deg, #ff6b6b, #ffa500);
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 2px 10px rgba(255, 107, 107, 0.3);
+}
+
 #highscores-list,
 #gameover-highscores-list {
   max-height: 180px;
@@ -416,10 +511,23 @@ html, body {
   font-size: 14px;
 }
 
+.hs-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
 .hs-score {
   color: #ffd700;
   font-weight: 700;
   font-size: 16px;
+}
+
+.hs-time {
+  color: #4fc3f7;
+  font-weight: 500;
+  font-size: 11px;
 }
 
 .empty {
@@ -476,6 +584,14 @@ html, body {
   margin-top: 16px;
   padding-top: 16px;
   border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.dash-stats {
+  grid-template-columns: 1fr 1fr;
+}
+
+.dash-stat {
+  color: #ffd700;
 }
 
 .gameover-buttons {
@@ -553,7 +669,7 @@ html, body {
 
 .touch-jump {
   position: absolute;
-  right: 120px;
+  right: 220px;
   bottom: 20px;
 }
 
@@ -561,6 +677,17 @@ html, body {
   position: absolute;
   right: 20px;
   bottom: 20px;
+}
+
+.touch-dash {
+  position: absolute;
+  right: 120px;
+  bottom: 20px;
+  background: rgba(255, 107, 0, 0.5);
+}
+
+.touch-dash:active {
+  background: rgba(255, 165, 0, 0.7);
 }
 
 .touch-left {

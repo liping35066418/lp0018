@@ -84,7 +84,14 @@ app.post('/api/game/end', (req, res) => {
   activeGames.delete(gameId);
   
   const finalScore = result.score;
-  const rank = gameEngine.submitHighScore(game.playerName || playerName || '匿名玩家', finalScore);
+  const timeSurvivedSec = Math.floor(result.timeSurvived / 1000);
+  const rank = gameEngine.submitHighScore(
+    game.playerName || playerName || '匿名玩家',
+    finalScore,
+    timeSurvivedSec,
+    result.dashCount,
+    result.dashBreakCount
+  );
   const highScores = gameEngine.getHighScores();
   
   res.json({
@@ -95,8 +102,10 @@ app.post('/api/game/end', (req, res) => {
       highScores,
       maxLives: gameEngine.config.maxLives,
       verified: true,
-      timeSurvived: Math.floor(result.timeSurvived / 1000),
-      livesRemaining: result.lives
+      timeSurvived: timeSurvivedSec,
+      livesRemaining: result.lives,
+      dashCount: result.dashCount,
+      dashBreakCount: result.dashBreakCount
     }
   });
 });
