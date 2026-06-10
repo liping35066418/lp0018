@@ -1,0 +1,17 @@
+{
+  "name": "parkour-h5-game",
+  "version": "1.0.0",
+  "description": "横版跑酷H5游戏 - 前后端分离架构",
+  "scripts": {
+    "install:all": "npm run install:backend && npm run install:frontend",
+    "install:backend": "cd backend && npm install",
+    "install:frontend": "cd frontend && npm install",
+    "start": "npm run start:all",
+    "start:all": "concurrently -k -n BACKEND,FRONTEND -c red,blue \"npm run start:backend\" \"npm run start:frontend\"",
+    "start:backend": "cd backend && npm start",
+    "start:frontend": "cd frontend && npm start"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

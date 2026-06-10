@@ -1,0 +1,12 @@
+{
+  "name": "parkour-game-frontend",
+  "version": "1.0.0",
+  "description": "横版跑酷游戏前端 - Canvas渲染引擎",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}

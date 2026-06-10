@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>极速跑酷 - Parkour Game</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="game-container">
+    <canvas id="gameCanvas" width="960" height="540"></canvas>
+    
+    <div id="hud">
+      <div class="hud-left">
+        <div class="score-panel">
+          <span class="label">分数</span>
+          <span id="score-value" class="value">0</span>
+        </div>
+        <div class="combo-panel" id="combo-panel">
+          <span id="combo-value"></span>
+        </div>
+      </div>
+      <div class="hud-center">
+        <div class="time-panel">
+          <span class="label">⏱️</span>
+          <span id="time-value" class="value">02:00</span>
+        </div>
+        <div class="difficulty-panel">
+          <span class="label">难度</span>
+          <span id="difficulty-value" class="value">Lv.1</span>
+        </div>
+      </div>
+      <div class="hud-right">
+        <div class="lives-panel" id="lives-panel">
+          <span class="heart">❤️</span>
+          <span class="heart">❤️</span>
+          <span class="heart">❤️</span>
+        </div>
+        <div class="status-panel" id="status-panel"></div>
+      </div>
+    </div>
+    
+    <div id="start-screen" class="overlay">
+      <div class="panel start-panel">
+        <h1 class="game-title">🏃 极速跑酷</h1>
+        <p class="subtitle">Parkour Adventure</p>
+        <div class="instructions">
+          <h3>操作说明</h3>
+          <div class="controls-grid">
+            <div class="control-item">
+              <span class="key">↑ / 空格</span>
+              <span class="desc">跳跃</span>
+            </div>
+            <div class="control-item">
+              <span class="key">↓ / S</span>
+              <span class="desc">下蹲</span>
+            </div>
+            <div class="control-item">
+              <span class="key">← → / A D</span>
+              <span class="desc">变道</span>
+            </div>
+            <div class="control-item">
+              <span class="key">点击上半屏</span>
+              <span class="desc">跳跃</span>
+            </div>
+            <div class="control-item">
+              <span class="key">点击下半屏</span>
+              <span class="desc">下蹲</span>
+            </div>
+            <div class="control-item">
+              <span class="key">左右滑动</span>
+              <span class="desc">变道</span>
+            </div>
+          </div>
+        </div>
+        <div class="player-name-input">
+          <label>玩家昵称:</label>
+          <input type="text" id="player-name" maxlength="10" placeholder="请输入昵称" value="跑酷达人">
+        </div>
+        <button id="start-btn" class="btn btn-primary">🎮 开始游戏</button>
+        <div class="highscores-section">
+          <h3>🏆 排行榜</h3>
+          <div id="highscores-list">
+            <p class="empty">暂无记录，快来创造第一名！</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div id="gameover-screen" class="overlay hidden">
+      <div class="panel gameover-panel">
+        <h2 class="gameover-title">💥 游戏结束</h2>
+        <div class="result-stats">
+          <div class="stat-item">
+            <span class="stat-label">最终得分</span>
+            <span id="final-score" class="stat-value big">0</span>
+          </div>
+          <div class="stat-row">
+            <div class="stat-item">
+              <span class="stat-label">排名</span>
+              <span id="final-rank" class="stat-value">#--</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-label">难度等级</span>
+              <span id="final-difficulty" class="stat-value">Lv.1</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-label">存活时间</span>
+              <span id="final-time" class="stat-value">0s</span>
+            </div>
+          </div>
+        </div>
+        <div class="highscores-section">
+          <h3>🏆 排行榜</h3>
+          <div id="gameover-highscores-list"></div>
+        </div>
+        <div class="gameover-buttons">
+          <button id="restart-btn" class="btn btn-primary">🔄 再来一局</button>
+          <button id="menu-btn" class="btn btn-secondary">🏠 返回主菜单</button>
+        </div>
+      </div>
+    </div>
+    
+    <div id="pause-hint" class="pause-hint hidden">
+      <span>按 ESC 暂停游戏</span>
+    </div>
+    
+    <div id="touch-controls" class="touch-controls hidden">
+      <div class="touch-btn touch-jump" id="touch-jump">
+        <span>⬆️ 跳</span>
+      </div>
+      <div class="touch-btn touch-crouch" id="touch-crouch">
+        <span>⬇️ 蹲</span>
+      </div>
+      <div class="touch-btn touch-left" id="touch-left">
+        <span>⬅️</span>
+      </div>
+      <div class="touch-btn touch-right" id="touch-right">
+        <span>➡️</span>
+      </div>
+    </div>
+  </div>
+  
+  <script src="js/game.js"></script>
+</body>
+</html>
