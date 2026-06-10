@@ -1,3 +1,15 @@
+class SeededRandom {
+  constructor(seed) {
+    this.seed = seed >>> 0;
+    if (this.seed === 0) this.seed = 1;
+  }
+  
+  next() {
+    this.seed = (this.seed * 1664525 + 1013904223) >>> 0;
+    return this.seed / 0x100000000;
+  }
+}
+
 class GameEngine {
   constructor() {
     this.config = {
@@ -11,7 +23,8 @@ class GameEngine {
       difficultyInterval: 10000,
       difficultyStep: 0.5,
       maxLives: 3,
-      gameTime: 120
+      gameTime: 120,
+      physicsStep: 16.67
     };
     
     this.obstacleTypes = [
@@ -69,7 +82,71 @@ class GameEngine {
     return Math.max(baseInterval - level * 60, 1000);
   }
   
-  generateObstacle(elapsedTime, lastX) {
+  createState(seed) {
+    const rng = new SeededRandom(seed);
+    const state = {
+      seed,
+      rng,
+      elapsedTime: 0,
+      score: 0,
+      lives: this.config.maxLives,
+      combo: 0,
+      speed: this.config.baseSpeed,
+      timeLeft: this.config.gameTime,
+      difficultyLevel: 1,
+      player: {
+        x: 120,
+        y: 0,
+        width: 50,
+        height: 80,
+        velocityY: 0,
+        isJumping: false,
+        isCrouching: false,
+        invincible: false,
+        invincibleTimer: 0,
+        shield: false,
+        lane: 0
+      },
+      obstacles: [],
+      items: [],
+      lastObstacleX: 0,
+      lastItemX: 0,
+      effects: [],
+      status: 'playing'
+    };
+    state.player.y = this.config.canvasHeight - this.config.groundHeight - state.player.height;
+    
+    const scene = this.generateInitialSceneWithRng(state.rng);
+    state.obstacles = scene.obstacles;
+    state.items = scene.items;
+    state.lastObstacleX = Math.max(...state.obstacles.map(o => o.x));
+    state.lastItemX = Math.max(...state.items.map(i => i.x));
+    
+    return state;
+  }
+  
+  generateInitialSceneWithRng(rng) {
+    const obstacles = [];
+    const items = [];
+    let lastObstacleX = 800;
+    let lastItemX = 600;
+    
+    for (let i = 0; i < 5; i++) {
+      const obstacle = this.generateObstacleWithRng(0, lastObstacleX, rng);
+      obstacles.push(obstacle);
+      lastObstacleX = obstacle.x;
+    }
+    
+    for (let i = 0; i < 3; i++) {
+      const item = this.generateItemWithRng(0, lastItemX, rng);
+      items.push(item);
+      lastItemX = item.x;
+    }
+    
+    return { obstacles, items };
+  }
+  
+  generateObstacleWithRng(elapsedTime, lastX, rng) {
     const level = this.getDifficultyLevel(elapsedTime);
     const minGap = Math.max(250 - level * 10, 150);
     
@@ -79,24 +156,24 @@ class GameEngine {
       return true;
     });
     
-    const typeIndex = Math.floor(Math.random() * availableTypes.length);
+    const typeIndex = Math.floor(rng.next() * availableTypes.length);
     const obstacleType = availableTypes[typeIndex];
     
     return {
-      id: Date.now() + Math.random(),
+      id: Math.floor(rng.next() * 1e9),
       ...obstacleType,
-      x: lastX + minGap + Math.random() * 200,
+      x: lastX + minGap + rng.next() * 200,
       y: obstacleType.elevated 
         ? this.config.canvasHeight - this.config.groundHeight - obstacleType.height - obstacleType.elevatedHeight
         : this.config.canvasHeight - this.config.groundHeight - obstacleType.height
     };
   }
   
-  generateItem(elapsedTime, lastX) {
+  generateItemWithRng(elapsedTime, lastX, rng) {
     const level = this.getDifficultyLevel(elapsedTime);
     const minGap = 150;
     
-    const rand = Math.random();
+    const rand = rng.next();
     let cumulative = 0;
     let selectedType = this.itemTypes[0];
     
@@ -111,15 +188,182 @@ class GameEngine {
       }
     }
     
-    const heightVariation = Math.random() > 0.5;
+    const heightVariation = rng.next() > 0.5;
     
     return {
-      id: Date.now() + Math.random(),
+      id: Math.floor(rng.next() * 1e9),
       ...selectedType,
-      x: lastX + minGap + Math.random() * 300,
+      x: lastX + minGap + rng.next() * 300,
       y: heightVariation
-        ? this.config.canvasHeight - this.config.groundHeight - 80 - Math.random() * 100
-        : this.config.canvasHeight - this.config.groundHeight - 40 - Math.random() * 50
+        ? this.config.canvasHeight - this.config.groundHeight - 80 - rng.next() * 100
+        : this.config.canvasHeight - this.config.groundHeight - 40 - rng.next() * 50
+    };
+  }
+  
+  step(state, deltaTime, action) {
+    if (state.status !== 'playing') return state;
+    
+    state.elapsedTime += deltaTime;
+    state.speed = this.getCurrentSpeed(state.elapsedTime);
+    state.difficultyLevel = this.getDifficultyLevel(state.elapsedTime);
+    state.timeLeft = Math.max(0, this.config.gameTime - Math.floor(state.elapsedTime / 1000));
+    
+    const player = state.player;
+    if (action) {
+      if (action.jump && !player.isJumping) {
+        player.velocityY = this.config.jumpForce;
+        player.isJumping = true;
+      }
+      if (action.crouch !== undefined) {
+        player.isCrouching = action.crouch;
+      }
+      if (action.laneChange) {
+        player.lane = Math.max(-1, Math.min(1, player.lane + action.laneChange));
+      }
+    }
+    
+    if (player.invincibleTimer > 0) {
+      player.invincibleTimer -= deltaTime;
+      if (player.invincibleTimer <= 0) {
+        player.invincible = false;
+      }
+    }
+    
+    player.velocityY += this.config.gravity;
+    player.y += player.velocityY;
+    
+    const playerHeight = player.isCrouching ? player.height * 0.6 : player.height;
+    const groundY = this.config.canvasHeight - this.config.groundHeight - playerHeight;
+    
+    if (player.y >= groundY) {
+      player.y = groundY;
+      player.velocityY = 0;
+      player.isJumping = false;
+    }
+    
+    player.x = 120 + player.lane * 30;
+    
+    const scrollAmount = state.speed * (deltaTime / this.config.physicsStep);
+    state.obstacles.forEach(obs => { obs.x -= scrollAmount; });
+    state.items.forEach(item => { item.x -= scrollAmount; });
+    state.lastObstacleX -= scrollAmount;
+    state.lastItemX -= scrollAmount;
+    
+    state.obstacles = state.obstacles.filter(obs => obs.x + obs.width > -100);
+    state.items = state.items.filter(item => item.x + item.width > -100);
+    
+    const spawnInterval = this.getObstacleSpawnInterval(state.elapsedTime);
+    if (state.lastObstacleX < this.config.canvasWidth + 100 && state.rng.next() < deltaTime / spawnInterval) {
+      const newObstacle = this.generateObstacleWithRng(state.elapsedTime, this.config.canvasWidth + 200, state.rng);
+      state.obstacles.push(newObstacle);
+      state.lastObstacleX = newObstacle.x;
+    }
+    
+    const itemInterval = this.getItemSpawnInterval(state.elapsedTime);
+    if (state.lastItemX < this.config.canvasWidth + 100 && state.rng.next() < deltaTime / itemInterval) {
+      const newItem = this.generateItemWithRng(state.elapsedTime, this.config.canvasWidth + 300, state.rng);
+      state.items.push(newItem);
+      state.lastItemX = newItem.x;
+    }
+    
+    state.obstacles = state.obstacles.filter(obs => {
+      if (this.checkCollision(player, obs)) {
+        const result = this.handleObstacleCollision(player, obs);
+        if (result.hit) {
+          state.lives -= result.damage;
+          state.combo = 0;
+          state.effects.push({
+            id: Date.now(),
+            type: 'damage',
+            x: player.x + player.width / 2,
+            y: player.y + player.height / 2,
+            duration: 500,
+            startTime: state.elapsedTime
+          });
+          if (state.lives <= 0) {
+            state.status = 'gameover';
+          }
+        } else {
+          state.score += this.calculateScore(result.scoreGained, state.elapsedTime, state.combo);
+          state.combo++;
+        }
+        return false;
+      }
+      return true;
+    });
+    
+    state.items = state.items.filter(item => {
+      if (this.checkCollision(player, item)) {
+        const result = this.handleItemCollision(player, item);
+        state.score += this.calculateScore(result.scoreGained, state.elapsedTime, state.combo);
+        if (result.heal) {
+          state.lives = Math.min(this.config.maxLives, state.lives + result.heal);
+        }
+        if (result.invincible) {
+          player.invincible = true;
+          player.invincibleTimer = result.invincible;
+        }
+        if (result.shield) {
+          player.shield = true;
+        }
+        if (result.timeBonus) {
+          state.timeLeft += result.timeBonus;
+        }
+        state.combo++;
+        state.effects.push({
+          id: Date.now(),
+          type: 'collect',
+          x: item.x + item.width / 2,
+          y: item.y + item.height / 2,
+          color: item.color,
+          text: `+${result.scoreGained}`,
+          duration: 800,
+          startTime: state.elapsedTime
+        });
+        return false;
+      }
+      return true;
+    });
+    
+    state.score += Math.floor(scrollAmount * 0.1);
+    
+    state.effects = state.effects.filter(e => state.elapsedTime - e.startTime < e.duration);
+    
+    if (state.timeLeft <= 0 && state.status === 'playing') {
+      state.status = 'gameover';
+    }
+    
+    return state;
+  }
+  
+  replay(seed, actions) {
+    const state = this.createState(seed);
+    
+    let currentTime = 0;
+    let actionIndex = 0;
+    
+    const stepMs = this.config.physicsStep;
+    
+    while (state.status === 'playing' && state.elapsedTime < this.config.gameTime * 1000 + 60000) {
+      let action = null;
+      
+      while (actionIndex < actions.length && actions[actionIndex].time <= state.elapsedTime + stepMs) {
+        const a = actions[actionIndex];
+        if (!action) action = {};
+        if (a.type === 'jump') action.jump = true;
+        if (a.type === 'crouch') action.crouch = a.value;
+        if (a.type === 'laneChange') action.laneChange = (action.laneChange || 0) + a.value;
+        actionIndex++;
+      }
+      
+      this.step(state, stepMs, action);
+    }
+    
+    return {
+      score: state.score,
+      status: state.status,
+      timeSurvived: Math.min(state.elapsedTime, this.config.gameTime * 1000),
+      lives: state.lives
     };
   }
   
@@ -194,27 +438,6 @@ class GameEngine {
     this.highScores.sort((a, b) => b.score - a.score);
     this.highScores = this.highScores.slice(0, 10);
     return this.highScores.indexOf(entry) + 1;
-  }
-  
-  generateInitialScene() {
-    const obstacles = [];
-    const items = [];
-    let lastObstacleX = 800;
-    let lastItemX = 600;
-    
-    for (let i = 0; i < 5; i++) {
-      const obstacle = this.generateObstacle(0, lastObstacleX);
-      obstacles.push(obstacle);
-      lastObstacleX = obstacle.x;
-    }
-    
-    for (let i = 0; i < 3; i++) {
-      const item = this.generateItem(0, lastItemX);
-      items.push(item);
-      lastItemX = item.x;
-    }
-    
-    return { obstacles, items };
   }
 }
 

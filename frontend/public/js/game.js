@@ -1,3 +1,15 @@
+class SeededRandom {
+  constructor(seed) {
+    this.seed = seed >>> 0;
+    if (this.seed === 0) this.seed = 1;
+  }
+  
+  next() {
+    this.seed = (this.seed * 1664525 + 1013904223) >>> 0;
+    return this.seed / 0x100000000;
+  }
+}
+
 class ParkourGame {
   constructor() {
     this.canvas = document.getElementById('gameCanvas');
@@ -9,60 +21,38 @@ class ParkourGame {
     
     this.gameState = 'menu';
     this.gameId = null;
+    this.seed = null;
     this.config = null;
-    this.startTime = 0;
-    this.lastUpdateTime = 0;
-    this.elapsedTime = 0;
+    
+    this.rng = null;
+    this.state = null;
+    
     this.lastFrameTime = 0;
+    this.accumulator = 0;
     
-    this.score = 0;
-    this.lives = 3;
-    this.maxLives = 3;
-    this.combo = 0;
-    this.timeLeft = 120;
-    this.difficultyLevel = 1;
-    
-    this.player = {
-      x: 120,
-      y: 0,
-      width: 50,
-      height: 80,
-      velocityY: 0,
-      isJumping: false,
-      isCrouching: false,
-      invincible: false,
-      shield: false,
-      lane: 0,
-      animFrame: 0,
-      animTimer: 0
-    };
-    
-    this.obstacles = [];
-    this.items = [];
-    this.effects = [];
-    this.particles = [];
-    
-    this.backgroundLayers = [
-      { speed: 0.2, offset: 0, color: '#0f3460', elements: [] },
-      { speed: 0.4, offset: 0, color: '#16213e', elements: [] },
-      { speed: 0.7, offset: 0, color: '#1a1a2e', elements: [] }
-    ];
-    
-    this.groundOffset = 0;
-    this.clouds = [];
-    this.mountains = [];
-    this.buildings = [];
-    
-    this.keys = {};
-    this.touchStartX = 0;
-    this.touchStartY = 0;
-    this.isTouchDevice = this.detectTouchDevice();
+    this.actions = [];
+    this.elapsedGameTime = 0;
     
     this.pendingActions = {
       jump: false,
       crouch: false,
       laneChange: 0
     };
+    this.lastCrouchState = false;
+    
+    this.particles = [];
+    this.shakeIntensity = 0;
+    this.shakeDecay = 0.85;
+    
+    this.clouds = [];
+    this.mountains = [];
+    this.buildings = [];
+    this.groundOffset = 0;
+    
+    this.keys = {};
+    this.touchStartX = 0;
+    this.touchStartY = 0;
+    this.isTouchDevice = this.detectTouchDevice();
     
     this.initBackground();
     this.bindEvents();
@@ -146,23 +136,47 @@ class ParkourGame {
     const touchRight = document.getElementById('touch-right');
     
     if (touchJump) {
-      touchJump.addEventListener('touchstart', (e) => { e.preventDefault(); this.pendingActions.jump = true; });
-      touchJump.addEventListener('mousedown', (e) => { e.preventDefault(); this.pendingActions.jump = true; });
+      touchJump.addEventListener('touchstart', (e) => { e.preventDefault(); this.triggerJump(); });
+      touchJump.addEventListener('mousedown', (e) => { e.preventDefault(); this.triggerJump(); });
     }
     if (touchCrouch) {
-      touchCrouch.addEventListener('touchstart', (e) => { e.preventDefault(); this.pendingActions.crouch = true; });
-      touchCrouch.addEventListener('touchend', (e) => { e.preventDefault(); this.pendingActions.crouch = false; });
-      touchCrouch.addEventListener('mousedown', (e) => { e.preventDefault(); this.pendingActions.crouch = true; });
-      touchCrouch.addEventListener('mouseup', (e) => { e.preventDefault(); this.pendingActions.crouch = false; });
+      touchCrouch.addEventListener('touchstart', (e) => { e.preventDefault(); this.setCrouch(true); });
+      touchCrouch.addEventListener('touchend', (e) => { e.preventDefault(); this.setCrouch(false); });
+      touchCrouch.addEventListener('mousedown', (e) => { e.preventDefault(); this.setCrouch(true); });
+      touchCrouch.addEventListener('mouseup', (e) => { e.preventDefault(); this.setCrouch(false); });
     }
     if (touchLeft) {
-      touchLeft.addEventListener('touchstart', (e) => { e.preventDefault(); this.pendingActions.laneChange = -1; });
-      touchLeft.addEventListener('mousedown', (e) => { e.preventDefault(); this.pendingActions.laneChange = -1; });
+      touchLeft.addEventListener('touchstart', (e) => { e.preventDefault(); this.triggerLaneChange(-1); });
+      touchLeft.addEventListener('mousedown', (e) => { e.preventDefault(); this.triggerLaneChange(-1); });
     }
     if (touchRight) {
-      touchRight.addEventListener('touchstart', (e) => { e.preventDefault(); this.pendingActions.laneChange = 1; });
-      touchRight.addEventListener('mousedown', (e) => { e.preventDefault(); this.pendingActions.laneChange = 1; });
+      touchRight.addEventListener('touchstart', (e) => { e.preventDefault(); this.triggerLaneChange(1); });
+      touchRight.addEventListener('mousedown', (e) => { e.preventDefault(); this.triggerLaneChange(1); });
     }
+  }
+  
+  triggerJump() {
+    if (this.gameState !== 'playing') return;
+    if (!this.state || this.state.player.isJumping) return;
+    this.pendingActions.jump = true;
+    this.actions.push({ time: this.elapsedGameTime, type: 'jump' });
+  }
+  
+  setCrouch(value) {
+    if (this.gameState !== 'playing') return;
+    if (this.lastCrouchState === value) return;
+    this.lastCrouchState = value;
+    this.pendingActions.crouch = value;
+    this.actions.push({ time: this.elapsedGameTime, type: 'crouch', value });
+  }
+  
+  triggerLaneChange(direction) {
+    if (this.gameState !== 'playing') return;
+    if (!this.state) return;
+    const newLane = Math.max(-1, Math.min(1, this.state.player.lane + direction));
+    if (newLane === this.state.player.lane) return;
+    this.pendingActions.laneChange = direction;
+    this.actions.push({ time: this.elapsedGameTime, type: 'laneChange', value: direction });
   }
   
   handleKeyDown(e) {
@@ -173,22 +187,22 @@ class ParkourGame {
       case 'ArrowUp':
       case 'KeyW':
         e.preventDefault();
-        this.pendingActions.jump = true;
+        this.triggerJump();
         break;
       case 'ArrowDown':
       case 'KeyS':
         e.preventDefault();
-        this.pendingActions.crouch = true;
+        this.setCrouch(true);
         break;
       case 'ArrowLeft':
       case 'KeyA':
         e.preventDefault();
-        this.pendingActions.laneChange = -1;
+        this.triggerLaneChange(-1);
         break;
       case 'ArrowRight':
       case 'KeyD':
         e.preventDefault();
-        this.pendingActions.laneChange = 1;
+        this.triggerLaneChange(1);
         break;
     }
   }
@@ -197,7 +211,7 @@ class ParkourGame {
     switch(e.code) {
       case 'ArrowDown':
       case 'KeyS':
-        this.pendingActions.crouch = false;
+        this.setCrouch(false);
         break;
     }
   }
@@ -231,16 +245,16 @@ class ParkourGame {
     if (absDiffX < minSwipe && absDiffY < minSwipe) {
       const clickY = (this.touchStartY / rect.height) * this.H;
       if (clickY < this.H / 2) {
-        this.pendingActions.jump = true;
+        this.triggerJump();
       } else {
-        this.pendingActions.crouch = true;
-        setTimeout(() => { this.pendingActions.crouch = false; }, 300);
+        this.setCrouch(true);
+        setTimeout(() => { this.setCrouch(false); }, 300);
       }
     } else if (absDiffX > absDiffY) {
       if (diffX > 0) {
-        this.pendingActions.laneChange = 1;
+        this.triggerLaneChange(1);
       } else {
-        this.pendingActions.laneChange = -1;
+        this.triggerLaneChange(-1);
       }
     }
   }
@@ -264,25 +278,20 @@ class ParkourGame {
       if (!data.success) throw new Error(data.error);
       
       this.gameId = data.data.gameId;
+      this.seed = data.data.seed;
       this.config = data.data.config;
-      const state = data.data.initialState;
       
-      this.maxLives = this.config.maxLives;
-      this.lives = state.lives;
-      this.score = state.score;
-      this.combo = 0;
-      this.timeLeft = state.timeLeft;
-      this.difficultyLevel = 1;
+      this.rng = new SeededRandom(this.seed);
+      this.createState();
       
-      this.player = { ...this.player, ...state.player };
-      this.obstacles = [...state.obstacles];
-      this.items = [...state.items];
-      this.effects = [];
+      this.actions = [];
+      this.elapsedGameTime = 0;
+      this.pendingActions = { jump: false, crouch: false, laneChange: 0 };
+      this.lastCrouchState = false;
       this.particles = [];
+      this.shakeIntensity = 0;
+      this.accumulator = 0;
       
-      this.startTime = Date.now();
-      this.lastUpdateTime = Date.now();
-      this.elapsedTime = 0;
       this.gameState = 'playing';
       
       this.hideOverlay('start-screen');
@@ -295,6 +304,364 @@ class ParkourGame {
     }
   }
   
+  createState() {
+    const rng = this.rng;
+    const cfg = this.config;
+    
+    this.state = {
+      elapsedTime: 0,
+      score: 0,
+      lives: cfg.maxLives,
+      combo: 0,
+      speed: cfg.baseSpeed,
+      timeLeft: cfg.gameTime,
+      difficultyLevel: 1,
+      player: {
+        x: 120,
+        y: 0,
+        width: 50,
+        height: 80,
+        velocityY: 0,
+        isJumping: false,
+        isCrouching: false,
+        invincible: false,
+        invincibleTimer: 0,
+        shield: false,
+        lane: 0,
+        animFrame: 0,
+        animTimer: 0
+      },
+      obstacles: [],
+      items: [],
+      lastObstacleX: 0,
+      lastItemX: 0,
+      effects: [],
+      status: 'playing'
+    };
+    
+    this.state.player.y = cfg.canvasHeight - cfg.groundHeight - this.state.player.height;
+    
+    const scene = this.generateInitialScene();
+    this.state.obstacles = scene.obstacles;
+    this.state.items = scene.items;
+    this.state.lastObstacleX = Math.max(...this.state.obstacles.map(o => o.x));
+    this.state.lastItemX = Math.max(...this.state.items.map(i => i.x));
+  }
+  
+  generateInitialScene() {
+    const obstacles = [];
+    const items = [];
+    let lastObstacleX = 800;
+    let lastItemX = 600;
+    
+    for (let i = 0; i < 5; i++) {
+      const obstacle = this.generateObstacle(0, lastObstacleX);
+      obstacles.push(obstacle);
+      lastObstacleX = obstacle.x;
+    }
+    
+    for (let i = 0; i < 3; i++) {
+      const item = this.generateItem(0, lastItemX);
+      items.push(item);
+      lastItemX = item.x;
+    }
+    
+    return { obstacles, items };
+  }
+  
+  getDifficultyLevel(elapsedTime) {
+    return Math.min(
+      Math.floor(elapsedTime / this.config.difficultyInterval) + 1,
+      20
+    );
+  }
+  
+  getCurrentSpeed(elapsedTime) {
+    const level = this.getDifficultyLevel(elapsedTime);
+    return Math.min(
+      this.config.baseSpeed + (level - 1) * this.config.difficultyStep,
+      this.config.maxSpeed
+    );
+  }
+  
+  getObstacleSpawnInterval(elapsedTime) {
+    const level = this.getDifficultyLevel(elapsedTime);
+    const baseInterval = 1800;
+    return Math.max(baseInterval - level * 80, 600);
+  }
+  
+  getItemSpawnInterval(elapsedTime) {
+    const level = this.getDifficultyLevel(elapsedTime);
+    const baseInterval = 2500;
+    return Math.max(baseInterval - level * 60, 1000);
+  }
+  
+  generateObstacle(elapsedTime, lastX) {
+    const rng = this.rng;
+    const level = this.getDifficultyLevel(elapsedTime);
+    const minGap = Math.max(250 - level * 10, 150);
+    
+    const availableTypes = this.config.obstacleTypes.filter((_, index) => {
+      if (level < 2 && index >= 2) return false;
+      if (level < 4 && index >= 4) return false;
+      return true;
+    });
+    
+    const typeIndex = Math.floor(rng.next() * availableTypes.length);
+    const obstacleType = availableTypes[typeIndex];
+    
+    return {
+      id: Math.floor(rng.next() * 1e9),
+      ...obstacleType,
+      x: lastX + minGap + rng.next() * 200,
+      y: obstacleType.elevated 
+        ? this.config.canvasHeight - this.config.groundHeight - obstacleType.height - obstacleType.elevatedHeight
+        : this.config.canvasHeight - this.config.groundHeight - obstacleType.height
+    };
+  }
+  
+  generateItem(elapsedTime, lastX) {
+    const rng = this.rng;
+    const level = this.getDifficultyLevel(elapsedTime);
+    const minGap = 150;
+    
+    const rand = rng.next();
+    let cumulative = 0;
+    let selectedType = this.config.itemTypes[0];
+    
+    for (const itemType of this.config.itemTypes) {
+      let prob = itemType.probability;
+      if (itemType.type === 'heart' && level > 5) prob *= 0.6;
+      if (itemType.type === 'star' && level > 8) prob *= 1.2;
+      cumulative += prob;
+      if (rand <= cumulative) {
+        selectedType = itemType;
+        break;
+      }
+    }
+    
+    const heightVariation = rng.next() > 0.5;
+    
+    return {
+      id: Math.floor(rng.next() * 1e9),
+      ...selectedType,
+      x: lastX + minGap + rng.next() * 300,
+      y: heightVariation
+        ? this.config.canvasHeight - this.config.groundHeight - 80 - rng.next() * 100
+        : this.config.canvasHeight - this.config.groundHeight - 40 - rng.next() * 50
+    };
+  }
+  
+  checkCollision(player, entity) {
+    const playerBox = {
+      x: player.x + player.width * 0.15,
+      y: player.y + player.height * 0.1,
+      width: player.width * 0.7,
+      height: player.height * (player.isCrouching ? 0.6 : 0.9)
+    };
+    
+    const entityBox = {
+      x: entity.x + entity.width * 0.1,
+      y: entity.y + entity.height * 0.1,
+      width: entity.width * 0.8,
+      height: entity.height * 0.8
+    };
+    
+    return playerBox.x < entityBox.x + entityBox.width &&
+           playerBox.x + playerBox.width > entityBox.x &&
+           playerBox.y < entityBox.y + entityBox.height &&
+           playerBox.y + playerBox.height > entityBox.y;
+  }
+  
+  handleObstacleCollision(player, obstacle) {
+    if (player.invincible || player.shield) {
+      if (player.shield) {
+        player.shield = false;
+      }
+      return { hit: false, scoreGained: obstacle.score * 2 };
+    }
+    return { hit: true, damage: obstacle.damage, scoreGained: 0 };
+  }
+  
+  handleItemCollision(player, item) {
+    const result = { scoreGained: item.score || 0 };
+    
+    if (item.heal) {
+      result.heal = item.heal;
+    }
+    if (item.invincible) {
+      result.invincible = 5000;
+    }
+    if (item.timeBonus) {
+      result.timeBonus = item.timeBonus;
+    }
+    if (item.shield) {
+      result.shield = true;
+    }
+    
+    return result;
+  }
+  
+  calculateScore(baseScore, elapsedTime, combo) {
+    const level = this.getDifficultyLevel(elapsedTime);
+    const comboMultiplier = 1 + combo * 0.1;
+    const levelMultiplier = 1 + (level - 1) * 0.05;
+    return Math.floor(baseScore * comboMultiplier * levelMultiplier);
+  }
+  
+  step(deltaTime, action) {
+    const state = this.state;
+    const cfg = this.config;
+    
+    if (state.status !== 'playing') return;
+    
+    state.elapsedTime += deltaTime;
+    state.speed = this.getCurrentSpeed(state.elapsedTime);
+    state.difficultyLevel = this.getDifficultyLevel(state.elapsedTime);
+    state.timeLeft = Math.max(0, cfg.gameTime - Math.floor(state.elapsedTime / 1000));
+    
+    const player = state.player;
+    if (action) {
+      if (action.jump && !player.isJumping) {
+        player.velocityY = cfg.jumpForce;
+        player.isJumping = true;
+        this.createJumpParticles();
+      }
+      if (action.crouch !== undefined) {
+        player.isCrouching = action.crouch;
+      }
+      if (action.laneChange) {
+        player.lane = Math.max(-1, Math.min(1, player.lane + action.laneChange));
+      }
+    }
+    
+    if (player.invincibleTimer > 0) {
+      player.invincibleTimer -= deltaTime;
+      if (player.invincibleTimer <= 0) {
+        player.invincible = false;
+      }
+    }
+    
+    player.velocityY += cfg.gravity;
+    player.y += player.velocityY;
+    
+    const playerHeight = player.isCrouching ? player.height * 0.6 : player.height;
+    const groundY = cfg.canvasHeight - cfg.groundHeight - playerHeight;
+    
+    if (player.y >= groundY) {
+      player.y = groundY;
+      player.velocityY = 0;
+      player.isJumping = false;
+    }
+    
+    player.x = 120 + player.lane * 30;
+    
+    player.animTimer += deltaTime;
+    if (player.animTimer > 50) {
+      player.animFrame++;
+      player.animTimer = 0;
+    }
+    
+    const scrollAmount = state.speed * (deltaTime / cfg.physicsStep);
+    state.obstacles.forEach(obs => { obs.x -= scrollAmount; });
+    state.items.forEach(item => { item.x -= scrollAmount; });
+    state.lastObstacleX -= scrollAmount;
+    state.lastItemX -= scrollAmount;
+    
+    state.obstacles = state.obstacles.filter(obs => obs.x + obs.width > -100);
+    state.items = state.items.filter(item => item.x + item.width > -100);
+    
+    const spawnInterval = this.getObstacleSpawnInterval(state.elapsedTime);
+    if (state.lastObstacleX < cfg.canvasWidth + 100 && this.rng.next() < deltaTime / spawnInterval) {
+      const newObstacle = this.generateObstacle(state.elapsedTime, cfg.canvasWidth + 200);
+      state.obstacles.push(newObstacle);
+      state.lastObstacleX = newObstacle.x;
+    }
+    
+    const itemInterval = this.getItemSpawnInterval(state.elapsedTime);
+    if (state.lastItemX < cfg.canvasWidth + 100 && this.rng.next() < deltaTime / itemInterval) {
+      const newItem = this.generateItem(state.elapsedTime, cfg.canvasWidth + 300);
+      state.items.push(newItem);
+      state.lastItemX = newItem.x;
+    }
+    
+    state.obstacles = state.obstacles.filter(obs => {
+      if (this.checkCollision(player, obs)) {
+        const result = this.handleObstacleCollision(player, obs);
+        if (result.hit) {
+          state.lives -= result.damage;
+          state.combo = 0;
+          this.screenShake();
+          this.createDamageParticles();
+          state.effects.push({
+            id: Date.now(),
+            type: 'damage',
+            x: player.x + player.width / 2,
+            y: player.y + player.height / 2,
+            duration: 500,
+            startTime: state.elapsedTime
+          });
+          if (state.lives <= 0) {
+            state.status = 'gameover';
+          }
+        } else {
+          state.score += this.calculateScore(result.scoreGained, state.elapsedTime, state.combo);
+          state.combo++;
+        }
+        return false;
+      }
+      return true;
+    });
+    
+    state.items = state.items.filter(item => {
+      if (this.checkCollision(player, item)) {
+        const result = this.handleItemCollision(player, item);
+        state.score += this.calculateScore(result.scoreGained, state.elapsedTime, state.combo);
+        if (result.heal) {
+          state.lives = Math.min(cfg.maxLives, state.lives + result.heal);
+        }
+        if (result.invincible) {
+          player.invincible = true;
+          player.invincibleTimer = result.invincible;
+        }
+        if (result.shield) {
+          player.shield = true;
+        }
+        if (result.timeBonus) {
+          state.timeLeft += result.timeBonus;
+        }
+        state.combo++;
+        this.createCollectParticles(item.x + item.width / 2, item.y + item.height / 2, item.color);
+        state.effects.push({
+          id: Date.now(),
+          type: 'collect',
+          x: item.x + item.width / 2,
+          y: item.y + item.height / 2,
+          color: item.color,
+          text: `+${result.scoreGained}`,
+          duration: 800,
+          startTime: state.elapsedTime
+        });
+        return false;
+      }
+      return true;
+    });
+    
+    state.score += Math.floor(scrollAmount * 0.1);
+    
+    state.effects = state.effects.filter(e => state.elapsedTime - e.startTime < e.duration);
+    
+    if (state.timeLeft <= 0 && state.status === 'playing') {
+      state.status = 'gameover';
+    }
+    
+    if (state.status === 'gameover') {
+      this.endGame();
+    }
+    
+    this.updateHUD();
+  }
+  
   async endGame() {
     if (this.gameState !== 'playing') return;
     this.gameState = 'gameover';
@@ -305,21 +672,26 @@ class ParkourGame {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           gameId: this.gameId,
-          playerName: this.playerName
+          playerName: this.playerName,
+          actions: this.actions,
+          clientScore: this.state.score
         })
       });
       
       const data = await res.json();
       if (data.success) {
         this.showGameOver(data.data);
+      } else {
+        throw new Error(data.error);
       }
     } catch (err) {
       console.error('结束游戏失败:', err);
       this.showGameOver({
-        finalScore: this.score,
+        finalScore: this.state.score,
         rank: '--',
         highScores: [],
-        maxLives: this.maxLives
+        maxLives: this.config.maxLives,
+        verified: false
       });
     }
   }
@@ -364,8 +736,14 @@ class ParkourGame {
   showGameOver(result) {
     document.getElementById('final-score').textContent = result.finalScore.toLocaleString();
     document.getElementById('final-rank').textContent = result.rank ? `#${result.rank}` : '#--';
-    document.getElementById('final-difficulty').textContent = `Lv.${this.difficultyLevel}`;
-    document.getElementById('final-time').textContent = `${Math.floor(this.elapsedTime / 1000)}s`;
+    document.getElementById('final-difficulty').textContent = `Lv.${this.state.difficultyLevel}`;
+    document.getElementById('final-time').textContent = `${Math.floor(this.state.elapsedTime / 1000)}s`;
+    
+    const verifyBadge = document.getElementById('verify-badge');
+    if (verifyBadge) {
+      verifyBadge.textContent = result.verified ? '✓ 分数已验证' : '⚠ 分数未验证';
+      verifyBadge.style.color = result.verified ? '#4caf50' : '#ff9800';
+    }
     
     this.renderHighScores(result.highScores, 'gameover-highscores-list');
     
@@ -387,112 +765,47 @@ class ParkourGame {
   }
   
   updateHUD() {
-    document.getElementById('score-value').textContent = this.score.toLocaleString();
+    if (!this.state) return;
     
-    const mins = Math.floor(this.timeLeft / 60);
-    const secs = this.timeLeft % 60;
+    document.getElementById('score-value').textContent = this.state.score.toLocaleString();
+    
+    const mins = Math.floor(this.state.timeLeft / 60);
+    const secs = this.state.timeLeft % 60;
     document.getElementById('time-value').textContent = 
       `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
     
-    document.getElementById('difficulty-value').textContent = `Lv.${this.difficultyLevel}`;
+    document.getElementById('difficulty-value').textContent = `Lv.${this.state.difficultyLevel}`;
     
     const livesPanel = document.getElementById('lives-panel');
     const hearts = livesPanel.querySelectorAll('.heart');
     hearts.forEach((h, i) => {
-      h.classList.toggle('lost', i >= this.lives);
+      h.classList.toggle('lost', i >= this.state.lives);
     });
     
     const comboPanel = document.getElementById('combo-panel');
     const comboValue = document.getElementById('combo-value');
-    if (this.combo > 1) {
+    if (this.state.combo > 1) {
       comboPanel.classList.add('active');
-      comboValue.textContent = `${this.combo} COMBO!`;
+      comboValue.textContent = `${this.state.combo} COMBO!`;
     } else {
       comboPanel.classList.remove('active');
     }
     
     const statusPanel = document.getElementById('status-panel');
     let badges = '';
-    if (this.player.invincible) {
+    if (this.state.player.invincible) {
       badges += '<span class="status-badge" style="background: linear-gradient(135deg, #ffd700, #ff9800);">⭐ 无敌</span>';
     }
-    if (this.player.shield) {
+    if (this.state.player.shield) {
       badges += '<span class="status-badge" style="background: linear-gradient(135deg, #2196f3, #3f51b5);">🛡️ 护盾</span>';
     }
     statusPanel.innerHTML = badges;
   }
   
-  async updateBackend(deltaTime) {
-    if (!this.gameId) return;
-    
-    try {
-      const res = await fetch(`${this.backendUrl}/game/update`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          gameId: this.gameId,
-          elapsedTime: this.elapsedTime,
-          playerAction: { ...this.pendingActions },
-          deltaTime: deltaTime
-        })
-      });
-      
-      const data = await res.json();
-      if (data.success && data.data) {
-        const state = data.data;
-        
-        if (state.status === 'gameover' && this.gameState === 'playing') {
-          this.score = state.score;
-          this.lives = state.lives;
-          this.updateHUD();
-          this.endGame();
-          return;
-        }
-        
-        this.score = state.score;
-        this.lives = state.lives;
-        this.combo = state.combo;
-        this.timeLeft = state.timeLeft;
-        this.difficultyLevel = state.difficultyLevel || 1;
-        
-        this.player = { ...this.player, ...state.player };
-        this.obstacles = state.obstacles || this.obstacles;
-        this.items = state.items || this.items;
-        
-        if (state.effects) {
-          state.effects.forEach(e => this.addEffect(e));
-        }
-        
-        if (state.collisionResults) {
-          if (state.collisionResults.obstaclesHit && state.collisionResults.obstaclesHit.length > 0) {
-            state.collisionResults.obstaclesHit.forEach(h => {
-              if (h.result.hit) {
-                this.screenShake();
-                this.createDamageParticles();
-              }
-            });
-          }
-          if (state.collisionResults.itemsCollected && state.collisionResults.itemsCollected.length > 0) {
-            state.collisionResults.itemsCollected.forEach(c => {
-              this.createCollectParticles(c.item.x + c.item.width/2, c.item.y + c.item.height/2, c.item.color);
-            });
-          }
-        }
-        
-        this.updateHUD();
-      }
-    } catch (err) {
-      // 静默失败，继续本地游戏
-    }
-    
-    this.pendingActions.jump = false;
-    this.pendingActions.laneChange = 0;
-  }
-  
   addEffect(effect) {
-    this.effects.push({
+    this.state.effects.push({
       ...effect,
-      startTime: Date.now()
+      startTime: this.state.elapsedTime
     });
   }
   
@@ -504,8 +817,8 @@ class ParkourGame {
   createDamageParticles() {
     for (let i = 0; i < 20; i++) {
       this.particles.push({
-        x: this.player.x + this.player.width / 2,
-        y: this.player.y + this.player.height / 2,
+        x: this.state.player.x + this.state.player.width / 2,
+        y: this.state.player.y + this.state.player.height / 2,
         vx: (Math.random() - 0.5) * 10,
         vy: (Math.random() - 0.5) * 10,
         life: 1,
@@ -535,8 +848,8 @@ class ParkourGame {
   createJumpParticles() {
     for (let i = 0; i < 8; i++) {
       this.particles.push({
-        x: this.player.x + this.player.width / 2,
-        y: this.player.y + this.player.height,
+        x: this.state.player.x + this.state.player.width / 2,
+        y: this.state.player.y + this.state.player.height,
         vx: (Math.random() - 0.5) * 6,
         vy: Math.random() * 3,
         life: 1,
@@ -702,7 +1015,7 @@ class ParkourGame {
   }
   
   drawPlayer() {
-    const p = this.player;
+    const p = this.state.player;
     const crouchFactor = p.isCrouching ? 0.6 : 1;
     const actualHeight = p.height * crouchFactor;
     const yOffset = p.height - actualHeight;
@@ -747,7 +1060,7 @@ class ParkourGame {
     this.ctx.stroke();
     
     this.ctx.fillStyle = '#ff7043';
-    const legOffset = Math.sin(this.player.animFrame * 0.5) * 5;
+    const legOffset = Math.sin(p.animFrame * 0.5) * 5;
     if (!p.isCrouching) {
       this.ctx.fillRect(drawX + 8, drawY + actualHeight - 18, 10, 18 + legOffset);
       this.ctx.fillRect(drawX + p.width - 18, drawY + actualHeight - 18, 10, 18 - legOffset);
@@ -757,7 +1070,7 @@ class ParkourGame {
     }
     
     this.ctx.fillStyle = '#29b6f6';
-    const armOffset = Math.sin(this.player.animFrame * 0.5 + Math.PI) * 4;
+    const armOffset = Math.sin(p.animFrame * 0.5 + Math.PI) * 4;
     this.ctx.fillRect(drawX, drawY + 25 + armOffset, 10, 22);
     this.ctx.fillRect(drawX + p.width - 10, drawY + 25 - armOffset, 10, 22);
     
@@ -794,7 +1107,7 @@ class ParkourGame {
   }
   
   drawObstacles() {
-    this.obstacles.forEach(obs => {
+    this.state.obstacles.forEach(obs => {
       this.ctx.save();
       this.ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
       this.ctx.shadowBlur = 8;
@@ -930,7 +1243,7 @@ class ParkourGame {
   drawItems() {
     const time = Date.now() / 200;
     
-    this.items.forEach(item => {
+    this.state.items.forEach(item => {
       this.ctx.save();
       this.ctx.translate(item.x + item.width / 2, item.y + item.height / 2);
       
@@ -1114,11 +1427,11 @@ class ParkourGame {
   }
   
   drawEffects() {
-    const now = Date.now();
+    const now = this.state.elapsedTime;
     
-    this.effects = this.effects.filter(e => {
+    this.state.effects.forEach(e => {
       const elapsed = now - e.startTime;
-      if (elapsed >= e.duration) return false;
+      if (elapsed >= e.duration) return;
       
       const progress = elapsed / e.duration;
       
@@ -1143,8 +1456,6 @@ class ParkourGame {
         this.ctx.fill();
         this.ctx.restore();
       }
-      
-      return true;
     });
   }
   
@@ -1184,24 +1495,26 @@ class ParkourGame {
     const deltaTime = now - this.lastFrameTime;
     this.lastFrameTime = now;
     
-    this.update(deltaTime);
-    this.render();
-    
-    requestAnimationFrame(() => this.gameLoop());
-  }
-  
-  update(deltaTime) {
-    if (this.gameState === 'playing') {
-      this.elapsedTime = Date.now() - this.startTime;
+    if (this.gameState === 'playing' && this.state) {
+      const clampedDelta = Math.min(deltaTime, 100);
+      this.accumulator += clampedDelta;
       
-      this.player.animTimer += deltaTime;
-      if (this.player.animTimer > 50) {
-        this.player.animFrame++;
-        this.player.animTimer = 0;
-      }
+      const stepMs = this.config ? this.config.physicsStep : 16.67;
       
-      if (this.pendingActions.jump && !this.player.isJumping) {
-        this.createJumpParticles();
+      while (this.accumulator >= stepMs) {
+        let action = null;
+        
+        if (this.pendingActions.jump || this.pendingActions.crouch !== this.lastCrouchState || this.pendingActions.laneChange !== 0) {
+          action = { ...this.pendingActions };
+        }
+        
+        this.step(stepMs, action);
+        
+        this.pendingActions.jump = false;
+        this.pendingActions.laneChange = 0;
+        
+        this.elapsedGameTime += stepMs;
+        this.accumulator -= stepMs;
       }
       
       this.updateParticles();
@@ -1211,13 +1524,11 @@ class ParkourGame {
       } else {
         this.shakeIntensity = 0;
       }
-      
-      const timeSinceUpdate = Date.now() - this.lastUpdateTime;
-      if (timeSinceUpdate >= 100) {
-        this.lastUpdateTime = Date.now();
-        this.updateBackend(timeSinceUpdate);
-      }
     }
+    
+    this.render();
+    
+    requestAnimationFrame(() => this.gameLoop());
   }
   
   render() {
@@ -1230,17 +1541,21 @@ class ParkourGame {
       );
     }
     
-    const speed = this.gameState === 'playing' 
-      ? (this.config ? this.config.baseSpeed + (this.difficultyLevel - 1) * 0.5 : 6) 
+    const speed = this.gameState === 'playing' && this.state
+      ? this.state.speed 
       : 3;
     
     this.drawBackground(speed);
     this.drawGround(speed);
     this.drawSpeedLines(speed * 2);
-    this.drawObstacles();
-    this.drawItems();
-    this.drawPlayer();
-    this.drawEffects();
+    
+    if (this.state) {
+      this.drawObstacles();
+      this.drawItems();
+      this.drawPlayer();
+      this.drawEffects();
+    }
+    
     this.drawParticles();
     
     this.ctx.restore();
