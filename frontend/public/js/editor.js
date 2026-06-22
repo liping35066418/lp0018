@@ -24,6 +24,15 @@ class ThreeDEditor {
     this.autoValidateTimer = null;
     this.isValidating = false;
 
+    this.isDraggingObject = false;
+    this.isMouseDownOnObject = false;
+    this.dragStartMouse = new THREE.Vector2();
+    this.dragStartPos = new THREE.Vector3();
+    this.rotateStartAngle = 0;
+    this.rotateStartY = 0;
+    this.instantValidateTimer = null;
+    this.mouseDownPos = new THREE.Vector2();
+
     this.init();
   }
 
@@ -226,7 +235,12 @@ class ThreeDEditor {
     this.setupLighting();
     this.setupGrid();
 
+    this.renderer.domElement.addEventListener('mousedown', (e) => this.onCanvasMouseDown(e));
+    this.renderer.domElement.addEventListener('mousemove', (e) => this.onCanvasMouseMove(e));
+    this.renderer.domElement.addEventListener('mouseup', (e) => this.onCanvasMouseUp(e));
+    this.renderer.domElement.addEventListener('mouseleave', (e) => this.onCanvasMouseUp(e));
     this.renderer.domElement.addEventListener('click', (e) => this.onCanvasClick(e));
+    this.updateTransformMode();
   }
 
   setupLighting() {
@@ -464,10 +478,8 @@ class ThreeDEditor {
 
     const mesh = this.createMesh(asset);
     
-    const centerX = this.level ? this.level.sceneSize.width / 2 : 4;
-    const centerZ = this.level ? this.level.sceneSize.depth / 2 : 3;
-    
-    mesh.position.set(centerX, asset.size.height / 2, centerZ);
+    const pos = this.findEmptyPosition(asset);
+    mesh.position.set(pos.x, asset.size.height / 2, pos.z);
     
     this.scene.add(mesh);
     this.objects.push(mesh);
@@ -512,6 +524,7 @@ class ThreeDEditor {
   }
 
   onCanvasClick(event) {
+    if (this.isDraggingObject) return;
     if (this.isDraggingAsset) return;
 
     const rect = this.renderer.domElement.getBoundingClientRect();
@@ -534,6 +547,236 @@ class ThreeDEditor {
     }
   }
 
+  onCanvasMouseDown(event) {
+    if (event.button !== 0) return;
+
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    this.mouseDownPos.set(event.clientX, event.clientY);
+    this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+    this.raycaster.setFromCamera(this.mouse, this.camera);
+    const intersects = this.raycaster.intersectObjects(this.objects, true);
+
+    if (intersects.length > 0) {
+      let obj = intersects[0].object;
+      while (obj.parent && !obj.userData.assetId) {
+        obj = obj.parent;
+      }
+      if (obj.userData.assetId) {
+        if (this.selectedObject !== obj) {
+          this.selectObject(obj);
+        }
+        this.isMouseDownOnObject = true;
+
+        if (this.transformMode === 'translate') {
+          const intersectPoint = new THREE.Vector3();
+          this.raycaster.ray.intersectPlane(this.plane, intersectPoint);
+          if (intersectPoint) {
+            this.dragStartPos.copy(obj.position);
+            this.dragStartMouse.set(event.clientX, event.clientY);
+            this.dragOffset.copy(intersectPoint).sub(obj.position);
+          }
+        } else if (this.transformMode === 'rotate') {
+          this.rotateStartY = obj.rotation.y;
+          const center = new THREE.Vector3(obj.position.x, 0, obj.position.z);
+          const intersectPoint = new THREE.Vector3();
+          this.raycaster.ray.intersectPlane(this.plane, intersectPoint);
+          if (intersectPoint) {
+            this.rotateStartAngle = Math.atan2(
+              intersectPoint.z - center.z,
+              intersectPoint.x - center.x
+            );
+          }
+        }
+      }
+    }
+  }
+
+  onCanvasMouseMove(event) {
+    if (!this.isMouseDownOnObject || !this.selectedObject) return;
+
+    const dx = event.clientX - this.mouseDownPos.x;
+    const dy = event.clientY - this.mouseDownPos.y;
+    const moveDist = Math.sqrt(dx * dx + dy * dy);
+
+    if (moveDist > 3 && !this.isDraggingObject) {
+      this.isDraggingObject = true;
+      this.controls.enabled = false;
+    }
+
+    if (!this.isDraggingObject) return;
+
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+    if (this.transformMode === 'translate') {
+      this.raycaster.setFromCamera(this.mouse, this.camera);
+      const intersectPoint = new THREE.Vector3();
+      this.raycaster.ray.intersectPlane(this.plane, intersectPoint);
+
+      if (intersectPoint) {
+        const newX = intersectPoint.x - this.dragOffset.x;
+        const newZ = intersectPoint.z - this.dragOffset.z;
+
+        const width = this.level ? this.level.sceneSize.width : 8;
+        const depth = this.level ? this.level.sceneSize.depth : 6;
+        const asset = this.selectedObject.userData.asset;
+
+        let objW = asset.size.width * this.selectedObject.scale.x;
+        let objD = asset.size.depth * this.selectedObject.scale.z;
+        const rotY = this.selectedObject.rotation.y;
+        if (Math.abs(Math.sin(rotY)) > 0.5) {
+          [objW, objD] = [objD, objW];
+        }
+
+        const halfW = objW / 2 + 0.05;
+        const halfD = objD / 2 + 0.05;
+
+        this.selectedObject.position.x = Math.max(halfW, Math.min(width - halfW, newX));
+        this.selectedObject.position.z = Math.max(halfD, Math.min(depth - halfD, newZ));
+
+        this.updateSceneStats();
+        this.scheduleInstantValidate();
+      }
+    } else if (this.transformMode === 'rotate') {
+      const center = new THREE.Vector3(this.selectedObject.position.x, 0, this.selectedObject.position.z);
+      this.raycaster.setFromCamera(this.mouse, this.camera);
+      const intersectPoint = new THREE.Vector3();
+      this.raycaster.ray.intersectPlane(this.plane, intersectPoint);
+
+      if (intersectPoint) {
+        const currentAngle = Math.atan2(
+          intersectPoint.z - center.z,
+          intersectPoint.x - center.x
+        );
+        const deltaAngle = currentAngle - this.rotateStartAngle;
+        this.selectedObject.rotation.y = this.rotateStartY + deltaAngle;
+
+        this.updateSceneStats();
+        this.scheduleInstantValidate();
+      }
+    }
+  }
+
+  onCanvasMouseUp(event) {
+    if (this.isDraggingObject) {
+      this.isDraggingObject = false;
+      this.controls.enabled = true;
+      this.scheduleAutoValidate();
+    }
+    this.isMouseDownOnObject = false;
+  }
+
+  getObjectBounds(obj, asset) {
+    let w = asset.size.width * obj.scale.x;
+    let d = asset.size.depth * obj.scale.z;
+    const rotY = obj.rotation.y;
+    if (Math.abs(Math.sin(rotY)) > 0.5) {
+      [w, d] = [d, w];
+    }
+    return {
+      minX: obj.position.x - w / 2,
+      maxX: obj.position.x + w / 2,
+      minZ: obj.position.z - d / 2,
+      maxZ: obj.position.z + d / 2,
+      width: w,
+      depth: d
+    };
+  }
+
+  checkOverlap(testX, testZ, asset, excludeObj = null, rotY = 0, scale = { x: 1, y: 1, z: 1 }) {
+    let w = asset.size.width * scale.x;
+    let d = asset.size.depth * scale.z;
+    if (Math.abs(Math.sin(rotY)) > 0.5) {
+      [w, d] = [d, w];
+    }
+    const testMinX = testX - w / 2 - 0.1;
+    const testMaxX = testX + w / 2 + 0.1;
+    const testMinZ = testZ - d / 2 - 0.1;
+    const testMaxZ = testZ + d / 2 + 0.1;
+
+    for (const obj of this.objects) {
+      if (obj === excludeObj) continue;
+      const objAsset = obj.userData.asset;
+      if (!objAsset) continue;
+      const bounds = this.getObjectBounds(obj, objAsset);
+      if (
+        testMinX < bounds.maxX &&
+        testMaxX > bounds.minX &&
+        testMinZ < bounds.maxZ &&
+        testMaxZ > bounds.minZ
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  findEmptyPosition(asset) {
+    const width = this.level ? this.level.sceneSize.width : 8;
+    const depth = this.level ? this.level.sceneSize.depth : 6;
+    const cx = width / 2;
+    const cz = depth / 2;
+
+    if (!this.checkOverlap(cx, cz, asset)) {
+      return { x: cx, z: cz };
+    }
+
+    const step = 0.5;
+    const maxRadius = Math.max(width, depth);
+
+    for (let radius = step; radius <= maxRadius; radius += step) {
+      const numPoints = Math.max(8, Math.floor(radius * 8));
+      for (let i = 0; i < numPoints; i++) {
+        const angle = (i / numPoints) * Math.PI * 2;
+        const testX = cx + Math.cos(angle) * radius;
+        const testZ = cz + Math.sin(angle) * radius;
+
+        let w = asset.size.width;
+        let d = asset.size.depth;
+        const halfW = w / 2 + 0.1;
+        const halfD = d / 2 + 0.1;
+
+        if (
+          testX >= halfW && testX <= width - halfW &&
+          testZ >= halfD && testZ <= depth - halfD &&
+          !this.checkOverlap(testX, testZ, asset)
+        ) {
+          return { x: testX, z: testZ };
+        }
+      }
+    }
+
+    for (let gx = 0.5; gx < width; gx += step) {
+      for (let gz = 0.5; gz < depth; gz += step) {
+        let w = asset.size.width;
+        let d = asset.size.depth;
+        const halfW = w / 2 + 0.1;
+        const halfD = d / 2 + 0.1;
+        if (
+          gx >= halfW && gx <= width - halfW &&
+          gz >= halfD && gz <= depth - halfD &&
+          !this.checkOverlap(gx, gz, asset)
+        ) {
+          return { x: gx, z: gz };
+        }
+      }
+    }
+
+    return { x: cx, z: cz };
+  }
+
+  scheduleInstantValidate() {
+    if (this.instantValidateTimer) {
+      clearTimeout(this.instantValidateTimer);
+    }
+    this.instantValidateTimer = setTimeout(() => {
+      this.validate(true);
+    }, 150);
+  }
+
   selectObject(obj) {
     if (this.selectedObject) {
       this.selectedObject.material.emissive = new THREE.Color(0x000000);
@@ -542,6 +785,7 @@ class ThreeDEditor {
     this.selectedObject = obj;
     obj.material.emissive = new THREE.Color(0x3b82f6);
     obj.material.emissiveIntensity = 0.3;
+    this.updateSelectionHelpers();
   }
 
   deselectAll() {
@@ -549,6 +793,7 @@ class ThreeDEditor {
       this.selectedObject.material.emissive = new THREE.Color(0x000000);
       this.selectedObject = null;
     }
+    this.updateSelectionHelpers();
   }
 
   deleteSelected() {
@@ -563,6 +808,7 @@ class ThreeDEditor {
     this.selectedObject.geometry.dispose();
     this.selectedObject.material.dispose();
     this.selectedObject = null;
+    this.updateSelectionHelpers();
     
     this.updateSceneStats();
     this.scheduleAutoValidate();
@@ -579,6 +825,102 @@ class ThreeDEditor {
 
   updateTransformMode() {
     this.controls.enabled = true;
+    const canvas = this.renderer?.domElement;
+    if (!canvas) return;
+
+    switch (this.transformMode) {
+      case 'translate':
+        canvas.style.cursor = 'grab';
+        break;
+      case 'rotate':
+        canvas.style.cursor = 'crosshair';
+        break;
+      case 'scale':
+        canvas.style.cursor = 'nesw-resize';
+        break;
+      default:
+        canvas.style.cursor = 'default';
+    }
+
+    this.updateSelectionHelpers();
+  }
+
+  updateSelectionHelpers() {
+    if (this.selectionHelper) {
+      this.scene.remove(this.selectionHelper);
+      this.selectionHelper.geometry?.dispose?.();
+      this.selectionHelper.material?.dispose?.();
+      this.selectionHelper = null;
+    }
+    if (this.rotateHelper) {
+      this.scene.remove(this.rotateHelper);
+      this.rotateHelper.geometry?.dispose?.();
+      this.rotateHelper.material?.dispose?.();
+      this.rotateHelper = null;
+    }
+    if (this.floorShadow) {
+      this.scene.remove(this.floorShadow);
+      this.floorShadow.geometry?.dispose?.();
+      this.floorShadow.material?.dispose?.();
+      this.floorShadow = null;
+    }
+
+    if (!this.selectedObject) return;
+
+    const obj = this.selectedObject;
+    const asset = obj.userData.asset;
+    if (!asset) return;
+
+    let w = asset.size.width * obj.scale.x;
+    let d = asset.size.depth * obj.scale.z;
+    const rotY = obj.rotation.y;
+    if (Math.abs(Math.sin(rotY)) > 0.5) {
+      [w, d] = [d, w];
+    }
+
+    const shadowGeo = new THREE.PlaneGeometry(w + 0.1, d + 0.1);
+    const shadowMat = new THREE.MeshBasicMaterial({
+      color: 0x3b82f6,
+      transparent: true,
+      opacity: 0.15,
+      side: THREE.DoubleSide
+    });
+    this.floorShadow = new THREE.Mesh(shadowGeo, shadowMat);
+    this.floorShadow.rotation.x = -Math.PI / 2;
+    this.floorShadow.position.set(obj.position.x, 0.02, obj.position.z);
+    this.scene.add(this.floorShadow);
+
+    if (this.transformMode === 'translate') {
+      const boxGeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(w + 0.05, 0.02, d + 0.05));
+      const boxMat = new THREE.LineBasicMaterial({ color: 0x3b82f6, linewidth: 2 });
+      this.selectionHelper = new THREE.LineSegments(boxGeo, boxMat);
+      this.selectionHelper.position.set(obj.position.x, 0.05, obj.position.z);
+      this.scene.add(this.selectionHelper);
+    } else if (this.transformMode === 'rotate') {
+      const ringGeo = new THREE.RingGeometry(
+        Math.max(w, d) * 0.6,
+        Math.max(w, d) * 0.75,
+        64
+      );
+      const ringMat = new THREE.MeshBasicMaterial({
+        color: 0xffa502,
+        transparent: true,
+        opacity: 0.6,
+        side: THREE.DoubleSide
+      });
+      this.rotateHelper = new THREE.Mesh(ringGeo, ringMat);
+      this.rotateHelper.rotation.x = -Math.PI / 2;
+      this.rotateHelper.position.set(obj.position.x, 0.04, obj.position.z);
+      this.scene.add(this.rotateHelper);
+
+      const arrowGeo = new THREE.ConeGeometry(0.08, 0.2, 8);
+      const arrowMat = new THREE.MeshBasicMaterial({ color: 0xffa502 });
+      const arrow = new THREE.Mesh(arrowGeo, arrowMat);
+      const r = Math.max(w, d) * 0.675;
+      arrow.position.set(obj.position.x + r, 0.15, obj.position.z);
+      arrow.rotation.z = -Math.PI / 2;
+      this.rotateHelper.add(arrow);
+    }
   }
 
   clearScene() {
@@ -589,6 +931,7 @@ class ThreeDEditor {
     });
     this.objects = [];
     this.selectedObject = null;
+    this.updateSelectionHelpers();
     this.updateSceneStats();
     this.resetValidationUI();
     this.showToast('场景已清空', 'info');
@@ -943,6 +1286,32 @@ class ThreeDEditor {
         obj.position.y = obj.userData.asset.size.height / 2 + Math.sin(time * 2 + i) * 0.05;
       }
     });
+
+    if (this.selectedObject && (this.floorShadow || this.selectionHelper || this.rotateHelper)) {
+      const obj = this.selectedObject;
+      if (this.floorShadow) {
+        this.floorShadow.position.x = obj.position.x;
+        this.floorShadow.position.z = obj.position.z;
+        this.floorShadow.rotation.y = obj.rotation.y;
+      }
+      if (this.selectionHelper) {
+        this.selectionHelper.position.x = obj.position.x;
+        this.selectionHelper.position.z = obj.position.z;
+        this.selectionHelper.rotation.y = obj.rotation.y;
+      }
+      if (this.rotateHelper) {
+        this.rotateHelper.position.x = obj.position.x;
+        this.rotateHelper.position.z = obj.position.z;
+      }
+    }
+
+    if (this.isDraggingObject && this.renderer?.domElement) {
+      if (this.transformMode === 'translate') {
+        this.renderer.domElement.style.cursor = 'grabbing';
+      } else if (this.transformMode === 'rotate') {
+        this.renderer.domElement.style.cursor = 'crosshair';
+      }
+    }
     
     this.renderer.render(this.scene, this.camera);
   }
