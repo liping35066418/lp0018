@@ -73,19 +73,15 @@ class GridUtils {
   }
   
   worldToGrid(x, z) {
-    const halfW = this.sceneWidth / 2;
-    const halfD = this.sceneDepth / 2;
-    const col = Math.floor((x + halfW) / this.cellSize);
-    const row = Math.floor((z + halfD) / this.cellSize);
+    const col = Math.floor(x / this.cellSize);
+    const row = Math.floor(z / this.cellSize);
     return { col: Math.max(0, Math.min(this.cols - 1, col)), row: Math.max(0, Math.min(this.rows - 1, row)) };
   }
   
   gridToWorld(col, row) {
-    const halfW = this.sceneWidth / 2;
-    const halfD = this.sceneDepth / 2;
     return {
-      x: (col + 0.5) * this.cellSize - halfW,
-      z: (row + 0.5) * this.cellSize - halfD
+      x: (col + 0.5) * this.cellSize,
+      z: (row + 0.5) * this.cellSize
     };
   }
   
@@ -199,8 +195,8 @@ class ChannelValidator {
       grid.markObstacle(bounds.minX, bounds.maxX, bounds.minZ, bounds.maxZ);
     }
     
-    const entranceX = 0;
-    const entranceZ = -sceneDepth / 2 + 0.5;
+    const entranceX = sceneWidth / 2;
+    const entranceZ = 0.5;
     const accessible = grid.floodFill(entranceX, entranceZ);
     
     const distResult = grid.distanceTransform(accessible);
@@ -209,10 +205,13 @@ class ChannelValidator {
     const passed = effectiveMinWidth >= minChannelWidth;
     
     if (!passed) {
+      const msg = `通道宽度不足: 最窄处仅 ${effectiveMinWidth.toFixed(2)}m，要求 ≥ ${minChannelWidth}m`;
       errors.push({
         type: 'channel',
         severity: 'error',
-        message: `通道宽度不足: 最窄处仅 ${effectiveMinWidth.toFixed(2)}m，要求 ≥ ${minChannelWidth}m`,
+        title: '通道宽度不足',
+        message: msg,
+        description: '请将展台或墙体向两侧移动，确保通行通道足够宽敞',
         position: distResult.minPosition ? { x: distResult.minPosition.x, z: distResult.minPosition.z } : null,
         suggestion: '请将展台或墙体向两侧移动，确保通行通道足够宽敞'
       });
@@ -244,10 +243,13 @@ class LightOcclusionValidator {
     const minLightDistance = levelConfig.constraints.minLightDistance || 0;
     
     if (lights.length < minLightCount) {
+      const msg = `光源数量不足: 当前 ${lights.length} 盏，要求 ≥ ${minLightCount} 盏`;
       errors.push({
         type: 'light',
         severity: 'error',
-        message: `光源数量不足: 当前 ${lights.length} 盏，要求 ≥ ${minLightCount} 盏`,
+        title: '光源数量不足',
+        message: msg,
+        description: '请添加至少 ' + minLightCount + ' 盏灯光以满足照明要求',
         suggestion: '请添加至少 ' + minLightCount + ' 盏灯光以满足照明要求'
       });
       return {
@@ -275,10 +277,13 @@ class LightOcclusionValidator {
         for (const booth of booths) {
           const dist = GeometryUtils.distance2D(lightPos.x, lightPos.z, booth.position.x, booth.position.z);
           if (dist < minLightDistance) {
+            const msg = `光源 "${lightAsset.name}" 与展台距离过近: ${dist.toFixed(2)}m，要求 ≥ ${minLightDistance}m`;
             errors.push({
               type: 'light',
               severity: 'warning',
-              message: `光源 "${lightAsset.name}" 与展台距离过近: ${dist.toFixed(2)}m，要求 ≥ ${minLightDistance}m`,
+              title: '光源与展台距离过近',
+              message: msg,
+              description: '请将光源或展台移开，保持适当距离以获得最佳照明效果',
               objectIds: [light.id, booth.id],
               position: { x: lightPos.x, z: lightPos.z },
               suggestion: '请将光源或展台移开，保持适当距离以获得最佳照明效果'
@@ -339,10 +344,13 @@ class LightOcclusionValidator {
       });
       
       if (isOccluded) {
+        const msg = `光源 "${lightAsset.name}" 被遮挡: 遮挡率 ${(occlusionRate * 100).toFixed(0)}%`;
         errors.push({
           type: 'light',
           severity: 'error',
-          message: `光源 "${lightAsset.name}" 被遮挡: 遮挡率 ${(occlusionRate * 100).toFixed(0)}%`,
+          title: '光源被遮挡',
+          message: msg,
+          description: '请移除或调整遮挡光源的展台，确保光线能够正常照射',
           objectIds: [light.id, ...Array.from(occludedBy)],
           position: { x: lightPos.x, z: lightPos.z },
           suggestion: '请移除或调整遮挡光源的展台，确保光线能够正常照射'
@@ -405,13 +413,19 @@ class PolyCountValidator {
       const overage = totalPolyCount - maxPolyCount;
       const sortedObjects = [...objectPolyCounts].sort((a, b) => b.polyCount - a.polyCount);
       const highPolyObjects = sortedObjects.filter(o => o.polyCount > 500).slice(0, 3);
-      
+      const suggestion = highPolyObjects.length > 0
+        ? `请减少高面数模型或降低缩放比例。高面数构件: ${highPolyObjects.map(o => `${o.name}(${o.polyCount.toLocaleString()}面)`).join(', ')}`
+        : '请减少高面数模型或降低缩放比例';
+      const msg = `模型面数超限: 当前 ${totalPolyCount.toLocaleString()} 三角面，上限 ${maxPolyCount.toLocaleString()}，超出 ${overage.toLocaleString()}`;
+
       errors.push({
         type: 'polycount',
         severity: 'error',
-        message: `模型面数超限: 当前 ${totalPolyCount.toLocaleString()} 三角面，上限 ${maxPolyCount.toLocaleString()}，超出 ${overage.toLocaleString()}`,
+        title: '模型面数超限',
+        message: msg,
+        description: suggestion,
         objectIds: highPolyObjects.map(o => o.id),
-        suggestion: `请减少高面数模型或降低缩放比例。高面数构件: ${highPolyObjects.map(o => `${o.name}(${o.polyCount.toLocaleString()}面)`).join(', ')}`
+        suggestion: suggestion
       });
     }
     
@@ -434,118 +448,197 @@ class TestSceneGenerator {
   generate(levelId, testType) {
     const level = this.levels.find(l => l.id === levelId);
     if (!level) return null;
-    
+
     const objects = [];
     const expectedErrors = [];
     let description = '';
-    
+
+    const width = level.sceneSize.width;
+    const depth = level.sceneSize.depth;
+    const cx = width / 2;
+    const cz = depth / 2;
+
+    const getAssetSize = (assetId) => {
+      const asset = this.assets.find(a => a.id === assetId);
+      return asset ? asset.size : { width: 1, height: 1, depth: 1 };
+    };
+
+    const clampPosition = (x, z, assetId, rotY = 0, scale = 1) => {
+      const size = getAssetSize(assetId);
+      let w = size.width * scale;
+      let d = size.depth * scale;
+      if (Math.abs(Math.sin(rotY)) > 0.5) {
+        [w, d] = [d, w];
+      }
+      const halfW = w / 2;
+      const halfD = d / 2;
+      const minX = halfW + 0.05;
+      const maxX = width - halfW - 0.05;
+      const minZ = halfD + 0.05;
+      const maxZ = depth - halfD - 0.05;
+      return {
+        x: Math.max(minX, Math.min(maxX, x)),
+        z: Math.max(minZ, Math.min(maxZ, z))
+      };
+    };
+
+    const toWorld = (centerX, centerZ, assetId, rotY = 0, scale = 1) => {
+      const rawX = centerX + cx;
+      const rawZ = centerZ + cz;
+      return clampPosition(rawX, rawZ, assetId, rotY, scale);
+    };
+
     const createObject = (assetId, x, y, z, rotY = 0, scale = 1) => {
+      const clamped = clampPosition(x, z, assetId, rotY, scale);
       return {
         id: `test_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         assetId,
-        position: { x, y, z },
+        position: { x: clamped.x, y, z: clamped.z },
         rotation: { x: 0, y: rotY, z: 0 },
         scale: { x: scale, y: scale, z: scale },
         polyCount: 0
       };
     };
     
-    const halfW = level.sceneSize.width / 2;
-    const halfD = level.sceneSize.depth / 2;
-    
     switch (testType) {
       case 'narrow_channel':
         description = '狭窄通道测试场景 - 展台刻意布置在通道两侧，造成通道宽度不足';
-        
-        objects.push(createObject('wall_straight', -halfW + 1, 1.25, 0, Math.PI / 2));
-        objects.push(createObject('wall_straight', halfW - 1, 1.25, 0, Math.PI / 2));
-        objects.push(createObject('wall_straight', 0, 1.25, -halfD + 1, 0));
-        objects.push(createObject('wall_straight', 0, 1.25, halfD - 1, 0));
-        
-        objects.push(createObject('booth_rect_medium', -1.5, 0.45, -1));
-        objects.push(createObject('booth_rect_medium', 1.5, 0.45, -1));
-        objects.push(createObject('booth_rect_medium', -1.2, 0.45, 1));
-        objects.push(createObject('booth_rect_medium', 1.2, 0.45, 1));
-        
-        objects.push(createObject('light_spot', 0, 3, -2));
-        objects.push(createObject('light_spot', 0, 3, 2));
+
+        const wallLeft = toWorld(-cx + 1, 0, 'wall_straight', Math.PI / 2);
+        const wallRight = toWorld(cx - 1, 0, 'wall_straight', Math.PI / 2);
+        const wallBack = toWorld(0, -cz + 1, 'wall_straight', 0);
+        const wallFront = toWorld(0, cz - 1, 'wall_straight', 0);
+        objects.push(createObject('wall_straight', wallLeft.x, 1.25, wallLeft.z, Math.PI / 2));
+        objects.push(createObject('wall_straight', wallRight.x, 1.25, wallRight.z, Math.PI / 2));
+        objects.push(createObject('wall_straight', wallBack.x, 1.25, wallBack.z, 0));
+        objects.push(createObject('wall_straight', wallFront.x, 1.25, wallFront.z, 0));
+
+        const pos1 = toWorld(-1.5, -1, 'booth_rect_medium');
+        const pos2 = toWorld(1.5, -1, 'booth_rect_medium');
+        const pos3 = toWorld(-1.2, 1, 'booth_rect_medium');
+        const pos4 = toWorld(1.2, 1, 'booth_rect_medium');
+        objects.push(createObject('booth_rect_medium', pos1.x, 0.45, pos1.z));
+        objects.push(createObject('booth_rect_medium', pos2.x, 0.45, pos2.z));
+        objects.push(createObject('booth_rect_medium', pos3.x, 0.45, pos3.z));
+        objects.push(createObject('booth_rect_medium', pos4.x, 0.45, pos4.z));
+
+        const light1 = toWorld(0, -2, 'light_spot');
+        const light2 = toWorld(0, 2, 'light_spot');
+        objects.push(createObject('light_spot', light1.x, 3, light1.z));
+        objects.push(createObject('light_spot', light2.x, 3, light2.z));
         
         expectedErrors.push('通道宽度不足');
         break;
         
       case 'high_polycount':
         description = '高面数测试场景 - 大量高精度装饰模型，造成总面数超限';
-        
-        objects.push(createObject('wall_straight', -halfW + 1, 1.25, 0, Math.PI / 2));
-        objects.push(createObject('wall_straight', halfW - 1, 1.25, 0, Math.PI / 2));
-        objects.push(createObject('wall_straight', 0, 1.25, -halfD + 1, 0));
-        objects.push(createObject('wall_straight', 0, 1.25, halfD - 1, 0));
-        
+
+        const hpWallLeft = toWorld(-cx + 1, 0, 'wall_straight', Math.PI / 2);
+        const hpWallRight = toWorld(cx - 1, 0, 'wall_straight', Math.PI / 2);
+        const hpWallBack = toWorld(0, -cz + 1, 'wall_straight', 0);
+        const hpWallFront = toWorld(0, cz - 1, 'wall_straight', 0);
+        objects.push(createObject('wall_straight', hpWallLeft.x, 1.25, hpWallLeft.z, Math.PI / 2));
+        objects.push(createObject('wall_straight', hpWallRight.x, 1.25, hpWallRight.z, Math.PI / 2));
+        objects.push(createObject('wall_straight', hpWallBack.x, 1.25, hpWallBack.z, 0));
+        objects.push(createObject('wall_straight', hpWallFront.x, 1.25, hpWallFront.z, 0));
+
         for (let i = 0; i < 15; i++) {
-          const x = (Math.random() - 0.5) * (level.sceneSize.width - 4);
-          const z = (Math.random() - 0.5) * (level.sceneSize.depth - 4);
-          objects.push(createObject('decoration_sculpture', x, 0.75, z, Math.random() * Math.PI, 1.5));
+          const localX = (Math.random() - 0.5) * (width - 4);
+          const localZ = (Math.random() - 0.5) * (depth - 4);
+          const rotY = Math.random() * Math.PI;
+          const pos = toWorld(localX, localZ, 'decoration_sculpture', rotY, 1.5);
+          objects.push(createObject('decoration_sculpture', pos.x, 0.75, pos.z, rotY, 1.5));
         }
-        
+
         for (let i = 0; i < 10; i++) {
-          const x = (Math.random() - 0.5) * (level.sceneSize.width - 4);
-          const z = (Math.random() - 0.5) * (level.sceneSize.depth - 4);
-          objects.push(createObject('decoration_plant', x, 0.6, z, Math.random() * Math.PI, 1.2));
+          const localX = (Math.random() - 0.5) * (width - 4);
+          const localZ = (Math.random() - 0.5) * (depth - 4);
+          const rotY = Math.random() * Math.PI;
+          const pos = toWorld(localX, localZ, 'decoration_plant', rotY, 1.2);
+          objects.push(createObject('decoration_plant', pos.x, 0.6, pos.z, rotY, 1.2));
         }
-        
-        objects.push(createObject('light_spot', 0, 3, -2));
-        objects.push(createObject('light_spot', 0, 3, 2));
+
+        const hpLight1 = toWorld(0, -2, 'light_spot');
+        const hpLight2 = toWorld(0, 2, 'light_spot');
+        objects.push(createObject('light_spot', hpLight1.x, 3, hpLight1.z));
+        objects.push(createObject('light_spot', hpLight2.x, 3, hpLight2.z));
         
         expectedErrors.push('模型面数超限');
         break;
         
       case 'light_occlusion':
         description = '光源遮挡测试场景 - 展台刻意摆放在光源前方，造成光线遮挡';
-        
-        objects.push(createObject('wall_straight', -halfW + 1, 1.25, 0, Math.PI / 2));
-        objects.push(createObject('wall_straight', halfW - 1, 1.25, 0, Math.PI / 2));
-        objects.push(createObject('wall_straight', 0, 1.25, -halfD + 1, 0));
-        objects.push(createObject('wall_straight', 0, 1.25, halfD - 1, 0));
-        
-        objects.push(createObject('light_spot', -2, 3, -2, Math.PI / 4));
-        objects.push(createObject('light_spot', 2, 3, -2, -Math.PI / 4));
-        objects.push(createObject('light_spot', 0, 3, 2, 0));
-        
-        objects.push(createObject('booth_rect_medium', -1.5, 0.45, -1.5));
-        objects.push(createObject('booth_rect_medium', 1.5, 0.45, -1.5));
-        objects.push(createObject('booth_square', 0, 0.45, 1.5));
-        
-        objects.push(createObject('booth_rect_medium', -2, 0.45, -2.5));
-        objects.push(createObject('booth_rect_medium', 2, 0.45, -2.5));
-        
+
+        const loWallLeft = toWorld(-cx + 1, 0, 'wall_straight', Math.PI / 2);
+        const loWallRight = toWorld(cx - 1, 0, 'wall_straight', Math.PI / 2);
+        const loWallBack = toWorld(0, -cz + 1, 'wall_straight', 0);
+        const loWallFront = toWorld(0, cz - 1, 'wall_straight', 0);
+        objects.push(createObject('wall_straight', loWallLeft.x, 1.25, loWallLeft.z, Math.PI / 2));
+        objects.push(createObject('wall_straight', loWallRight.x, 1.25, loWallRight.z, Math.PI / 2));
+        objects.push(createObject('wall_straight', loWallBack.x, 1.25, loWallBack.z, 0));
+        objects.push(createObject('wall_straight', loWallFront.x, 1.25, loWallFront.z, 0));
+
+        const loLight1 = toWorld(-2, -2, 'light_spot', Math.PI / 4);
+        const loLight2 = toWorld(2, -2, 'light_spot', -Math.PI / 4);
+        const loLight3 = toWorld(0, 2, 'light_spot', 0);
+        objects.push(createObject('light_spot', loLight1.x, 3, loLight1.z, Math.PI / 4));
+        objects.push(createObject('light_spot', loLight2.x, 3, loLight2.z, -Math.PI / 4));
+        objects.push(createObject('light_spot', loLight3.x, 3, loLight3.z, 0));
+
+        const loBooth1 = toWorld(-1.5, -1.5, 'booth_rect_medium');
+        const loBooth2 = toWorld(1.5, -1.5, 'booth_rect_medium');
+        const loBooth3 = toWorld(0, 1.5, 'booth_square');
+        objects.push(createObject('booth_rect_medium', loBooth1.x, 0.45, loBooth1.z));
+        objects.push(createObject('booth_rect_medium', loBooth2.x, 0.45, loBooth2.z));
+        objects.push(createObject('booth_square', loBooth3.x, 0.45, loBooth3.z));
+
+        const loBooth4 = toWorld(-1.8, -1.8, 'booth_rect_medium');
+        const loBooth5 = toWorld(1.8, -1.8, 'booth_rect_medium');
+        objects.push(createObject('booth_rect_medium', loBooth4.x, 0.45, loBooth4.z));
+        objects.push(createObject('booth_rect_medium', loBooth5.x, 0.45, loBooth5.z));
+
         expectedErrors.push('光源被遮挡');
         break;
         
       case 'all':
         description = '综合违规测试场景 - 同时包含通道狭窄、面数超限、光源遮挡三种违规';
-        
-        objects.push(createObject('wall_straight', -halfW + 1, 1.25, 0, Math.PI / 2));
-        objects.push(createObject('wall_straight', halfW - 1, 1.25, 0, Math.PI / 2));
-        objects.push(createObject('wall_straight', 0, 1.25, -halfD + 1, 0));
-        objects.push(createObject('wall_straight', 0, 1.25, halfD - 1, 0));
-        
-        objects.push(createObject('booth_rect_medium', -1.2, 0.45, 0));
-        objects.push(createObject('booth_rect_medium', 1.2, 0.45, 0));
-        objects.push(createObject('booth_rect_medium', -1, 0.45, 1.5));
-        objects.push(createObject('booth_rect_medium', 1, 0.45, 1.5));
-        
-        objects.push(createObject('light_spot', -2, 3, -2, Math.PI / 4));
-        objects.push(createObject('light_spot', 2, 3, -2, -Math.PI / 4));
-        
-        objects.push(createObject('booth_rect_medium', -2, 0.45, -2.5));
-        objects.push(createObject('booth_rect_medium', 2, 0.45, -2.5));
-        
+
+        const allWallLeft = toWorld(-cx + 1, 0, 'wall_straight', Math.PI / 2);
+        const allWallRight = toWorld(cx - 1, 0, 'wall_straight', Math.PI / 2);
+        const allWallBack = toWorld(0, -cz + 1, 'wall_straight', 0);
+        const allWallFront = toWorld(0, cz - 1, 'wall_straight', 0);
+        objects.push(createObject('wall_straight', allWallLeft.x, 1.25, allWallLeft.z, Math.PI / 2));
+        objects.push(createObject('wall_straight', allWallRight.x, 1.25, allWallRight.z, Math.PI / 2));
+        objects.push(createObject('wall_straight', allWallBack.x, 1.25, allWallBack.z, 0));
+        objects.push(createObject('wall_straight', allWallFront.x, 1.25, allWallFront.z, 0));
+
+        const allBooth1 = toWorld(-1.2, 0, 'booth_rect_medium');
+        const allBooth2 = toWorld(1.2, 0, 'booth_rect_medium');
+        const allBooth3 = toWorld(-1, 1.5, 'booth_rect_medium');
+        const allBooth4 = toWorld(1, 1.5, 'booth_rect_medium');
+        objects.push(createObject('booth_rect_medium', allBooth1.x, 0.45, allBooth1.z));
+        objects.push(createObject('booth_rect_medium', allBooth2.x, 0.45, allBooth2.z));
+        objects.push(createObject('booth_rect_medium', allBooth3.x, 0.45, allBooth3.z));
+        objects.push(createObject('booth_rect_medium', allBooth4.x, 0.45, allBooth4.z));
+
+        const allLight1 = toWorld(-2, -2, 'light_spot', Math.PI / 4);
+        const allLight2 = toWorld(2, -2, 'light_spot', -Math.PI / 4);
+        objects.push(createObject('light_spot', allLight1.x, 3, allLight1.z, Math.PI / 4));
+        objects.push(createObject('light_spot', allLight2.x, 3, allLight2.z, -Math.PI / 4));
+
+        const allBooth5 = toWorld(-1.8, -1.8, 'booth_rect_medium');
+        const allBooth6 = toWorld(1.8, -1.8, 'booth_rect_medium');
+        objects.push(createObject('booth_rect_medium', allBooth5.x, 0.45, allBooth5.z));
+        objects.push(createObject('booth_rect_medium', allBooth6.x, 0.45, allBooth6.z));
+
         for (let i = 0; i < 10; i++) {
-          const x = (Math.random() - 0.5) * (level.sceneSize.width - 4);
-          const z = (Math.random() - 0.5) * (level.sceneSize.depth - 4);
-          objects.push(createObject('decoration_sculpture', x, 0.75, z, Math.random() * Math.PI));
+          const localX = (Math.random() - 0.5) * (width - 4);
+          const localZ = (Math.random() - 0.5) * (depth - 4);
+          const rotY = Math.random() * Math.PI;
+          const pos = toWorld(localX, localZ, 'decoration_sculpture', rotY);
+          objects.push(createObject('decoration_sculpture', pos.x, 0.75, pos.z, rotY));
         }
-        
+
         expectedErrors.push('通道宽度不足', '模型面数超限', '光源被遮挡');
         break;
     }

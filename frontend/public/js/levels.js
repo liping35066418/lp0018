@@ -3,12 +3,26 @@ const API_BASE = 'http://localhost:9918/api';
 class LevelsPage {
   constructor() {
     this.levels = [];
+    this.assets = [];
     this.init();
   }
 
   async init() {
     this.bindEvents();
-    await this.loadLevels();
+    await Promise.all([this.loadLevels(), this.loadAssets()]);
+    this.renderLevels();
+  }
+
+  async loadAssets() {
+    try {
+      const response = await fetch(`${API_BASE}/assets`);
+      const data = await response.json();
+      if (data.success) {
+        this.assets = data.data;
+      }
+    } catch (error) {
+      console.error('加载构件库失败:', error);
+    }
   }
 
   bindEvents() {
@@ -24,16 +38,15 @@ class LevelsPage {
     try {
       const response = await fetch(`${API_BASE}/levels`);
       const data = await response.json();
-      
+
       if (data.success) {
         this.levels = data.data;
-        this.renderLevels();
       } else {
-        this.showError('加载关卡失败');
+        this.showError('加载关卡失败: ' + (data.error || data.message || '未知错误'));
       }
     } catch (error) {
       console.error('加载关卡失败:', error);
-      this.showError('无法连接到后端服务，请确认端口9918已启动');
+      this.showError('无法连接到后端服务，请确认端口9918已启动 (' + error.message + ')');
     }
   }
 
@@ -45,10 +58,37 @@ class LevelsPage {
       return;
     }
 
+    const getAssetName = (assetId) => {
+      if (this.assets && this.assets.length > 0) {
+        const asset = this.assets.find(a => a.id === assetId);
+        if (asset) return asset.name;
+      }
+      return String(assetId);
+    };
+
+    const getRewardDisplay = (level) => {
+      if (level.rewardText && typeof level.rewardText === 'string' && level.rewardText.trim() !== '') {
+        return level.rewardText;
+      }
+      if (level.unlockedAssets && Array.isArray(level.unlockedAssets) && level.unlockedAssets.length > 0) {
+        return level.unlockedAssets.map(id => getAssetName(id)).join('、');
+      }
+      if (Array.isArray(level.reward) && level.reward.length > 0) {
+        return level.reward.map(id => getAssetName(id)).join('、');
+      }
+      if (typeof level.reward === 'string' && level.reward.trim() !== '') {
+        return level.reward;
+      }
+      return '无';
+    };
+
     grid.innerHTML = this.levels.map((level, index) => {
       const isLocked = index > 0;
       const statusClass = isLocked ? 'locked' : 'available';
-      const difficultyStars = '★'.repeat(level.difficulty) + '☆'.repeat(3 - level.difficulty);
+      const difficulty = level.difficulty !== undefined ? level.difficulty : (index + 1);
+      const safeDifficulty = Math.min(Math.max(1, difficulty), 3);
+      const difficultyStars = '★'.repeat(safeDifficulty) + '☆'.repeat(3 - safeDifficulty);
+      const rewardDisplay = getRewardDisplay(level);
       
       return `
         <div class="level-card ${statusClass}" data-level-id="${level.id}">
@@ -65,7 +105,7 @@ class LevelsPage {
           </div>
           <div class="level-card-footer">
             <span class="difficulty">难度: <span class="stars">${difficultyStars}</span></span>
-            <span class="reward">🎁 ${level.reward}</span>
+            <span class="reward">🎁 ${rewardDisplay}</span>
           </div>
         </div>
       `;

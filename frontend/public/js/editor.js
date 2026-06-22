@@ -28,18 +28,66 @@ class ThreeDEditor {
   }
 
   async init() {
-    this.parseUrlParams();
-    this.bindUIEvents();
-    this.initThreeJS();
-    await this.loadLevelData();
-    await this.loadAssets();
-    this.renderAssetList();
-    this.animate();
-    
-    if (this.initialSceneData) {
-      this.loadSceneData(this.initialSceneData);
-      setTimeout(() => this.validate(), 500);
+    try {
+      const threeReady = await this.waitForThreeJS(5000);
+      if (!threeReady) {
+        throw new Error('Three.js 三维库加载超时，请检查网络连接或刷新页面');
+      }
+      if (typeof THREE !== 'undefined' && typeof window.OrbitControls !== 'undefined' && !THREE.OrbitControls) {
+        THREE.OrbitControls = window.OrbitControls;
+      }
+      if (!THREE.OrbitControls) {
+        throw new Error('OrbitControls 控制器未加载，请刷新页面重试');
+      }
+
+      this.parseUrlParams();
+      this.bindUIEvents();
+      this.initThreeJS();
+      await this.loadLevelData();
+      await this.loadAssets();
+      this.renderAssetList();
+      this.animate();
+
+      if (this.initialSceneData) {
+        this.loadSceneData(this.initialSceneData);
+        setTimeout(() => this.validate(), 500);
+      }
+    } catch (error) {
+      console.error('编辑器初始化失败:', error);
+      this.showFatalError(error.message || '未知错误');
     }
+  }
+
+  waitForThreeJS(timeout) {
+    return new Promise(resolve => {
+      const start = Date.now();
+      function check() {
+        if (typeof THREE !== 'undefined' && (THREE.OrbitControls || window.OrbitControls)) {
+          resolve(true);
+        } else if (Date.now() - start > timeout) {
+          resolve(false);
+        } else {
+          setTimeout(check, 50);
+        }
+      }
+      check();
+    });
+  }
+
+  showFatalError(message) {
+    const app = document.getElementById('editor-app');
+    app.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:center;min-height:100vh;background:#0a0f1a;color:#fff;padding:20px;">
+        <div style="max-width:500px;text-align:center;">
+          <div style="font-size:64px;margin-bottom:20px;">⚠️</div>
+          <h2 style="font-size:24px;margin-bottom:16px;color:#ef4444;">编辑器启动失败</h2>
+          <p style="color:#94a3b8;margin-bottom:24px;line-height:1.6;">${message}</p>
+          <button onclick="location.reload()" style="background:#3b82f6;color:#fff;border:none;padding:12px 32px;border-radius:8px;cursor:pointer;font-size:16px;">
+            刷新重试
+          </button>
+        </div>
+      </div>
+    `;
   }
 
   parseUrlParams() {
@@ -267,12 +315,19 @@ class ThreeDEditor {
     try {
       const response = await fetch(`${API_BASE}/assets`);
       const data = await response.json();
-      
+
       if (data.success) {
         this.assets = data.data;
+      } else {
+        throw new Error(data.message || '加载构件库失败');
       }
     } catch (error) {
       console.error('加载构件库失败:', error);
+      const list = document.getElementById('asset-list');
+      if (list) {
+        list.innerHTML = `<div class="asset-loading"><span style="color:#ff4757;">❌ 构件库加载失败</span><p style="font-size:12px;color:var(--text-muted);">${error.message}</p><button onclick="location.reload()" style="margin-top:12px;padding:6px 16px;background:var(--bg-tertiary);border:1px solid var(--border-color);border-radius:6px;color:#fff;cursor:pointer;">刷新重试</button></div>`;
+      }
+      this.showToast('构件库加载失败: ' + error.message, 'error');
     }
   }
 
@@ -574,8 +629,23 @@ class ThreeDEditor {
       this.showToast('正在校验...', 'info');
     }
 
+    if (this.objects.length === 0) {
+      this.resetValidationUI();
+      if (!isAuto) {
+        this.showResultModal({
+          passed: false,
+          errors: [{ type: 'polycount', severity: 'warning', title: '场景为空', description: '请先添加构件到场景中再进行校验' }],
+          channelWidth: { minWidth: 0, passed: false },
+          lightOcclusion: { totalLights: 0, occludedLights: 0, passed: false },
+          polyCount: { current: 0, limit: this.level?.constraints?.maxPolyCount || 0, passed: false }
+        });
+      }
+      this.isValidating = false;
+      return;
+    }
+
     const sceneObjects = this.objects.map(obj => ({
-      id: obj.userData.objectId,
+      id: String(obj.userData.objectId),
       assetId: obj.userData.assetId,
       position: {
         x: parseFloat(obj.position.x.toFixed(3)),
@@ -595,26 +665,27 @@ class ThreeDEditor {
     }));
 
     try {
+      const payload = JSON.stringify({ levelId: this.levelId, objects: sceneObjects });
       const response = await fetch(`${API_BASE}/validate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          levelId: this.levelId,
-          objects: sceneObjects
-        })
+        body: payload
       });
 
       const data = await response.json();
-      
+
       if (data.success) {
         this.updateValidationUI(data.data, isAuto);
       } else {
-        this.showToast('校验失败: ' + data.message, 'error');
+        console.error('校验返回失败:', data.error || data.message);
+        if (!isAuto) {
+          this.showToast('校验失败: ' + (data.error || data.message || '未知错误'), 'error');
+        }
       }
     } catch (error) {
-      console.error('校验失败:', error);
+      console.error('校验请求失败:', error);
       if (!isAuto) {
-        this.showToast('无法连接到校验服务', 'error');
+        this.showToast('无法连接到校验服务: ' + error.message, 'error');
       }
     } finally {
       this.isValidating = false;
@@ -622,28 +693,47 @@ class ThreeDEditor {
   }
 
   updateValidationUI(result, isAuto) {
-    const { passed, errors, channelWidth, lightStats, polyStats } = result;
+    const { passed, errors, channelWidth } = result;
+    const lightStats = result.lightOcclusion || result.lightStats || {};
+    const polyStats = result.polyCount || result.polyStats || {};
+
+    const lightUnobstructed = (lightStats.totalLights !== undefined)
+      ? (lightStats.totalLights - (lightStats.occludedLights || 0))
+      : (lightStats.unobstructed || 0);
+    const lightTotal = lightStats.totalLights !== undefined ? lightStats.totalLights : (lightStats.total || 0);
+    const lightPassed = lightStats.passed !== undefined ? lightStats.passed : false;
+    const lightProgress = lightTotal > 0 ? (lightUnobstructed / lightTotal * 100) : 0;
 
     this.updateConstraintUI('channel', channelWidth.passed, 
       `${channelWidth.minWidth.toFixed(1)}m`, channelWidth.minWidth / this.level.constraints.minChannelWidth * 100);
 
-    this.updateConstraintUI('light', lightStats.passed,
-      `${lightStats.unobstructed}/${lightStats.total}`, lightStats.total > 0 ? (lightStats.unobstructed / lightStats.total * 100) : 0);
+    this.updateConstraintUI('light', lightPassed,
+      `${lightUnobstructed}/${lightTotal}`, lightProgress);
 
-    this.updateConstraintUI('poly', polyStats.passed,
-      polyStats.current.toLocaleString(), (polyStats.current / polyStats.max) * 100);
+    const polyCurrent = polyStats.current || 0;
+    const polyMax = polyStats.limit || polyStats.max || 0;
+    const polyPassed = polyStats.passed !== undefined ? polyStats.passed : false;
+    const polyProgress = polyMax > 0 ? (polyCurrent / polyMax * 100) : 0;
+
+    this.updateConstraintUI('poly', polyPassed,
+      polyCurrent.toLocaleString(), polyProgress);
 
     const errorsList = document.getElementById('errors-list');
     if (errors && errors.length > 0) {
-      errorsList.innerHTML = errors.map(err => `
-        <div class="error-item severity-${err.severity}">
-          <span class="error-icon">${err.type === 'channel' ? '📏' : err.type === 'light' ? '💡' : '📊'}</span>
-          <div class="error-content">
-            <span class="error-title">${err.title}</span>
-            <span class="error-desc">${err.description}</span>
+      errorsList.innerHTML = errors.map(err => {
+        const title = err.title || err.message || '违规项';
+        const description = err.description || err.suggestion || '';
+        const severity = err.severity || 'error';
+        return `
+          <div class="error-item severity-${severity}">
+            <span class="error-icon">${err.type === 'channel' ? '📏' : err.type === 'light' ? '💡' : '📊'}</span>
+            <div class="error-content">
+              <span class="error-title">${title}</span>
+              <span class="error-desc">${description}</span>
+            </div>
           </div>
-        </div>
-      `).join('');
+        `;
+      }).join('');
     } else {
       errorsList.innerHTML = '<p class="empty-text">暂无违规项</p>';
     }
@@ -688,7 +778,17 @@ class ThreeDEditor {
     const rewardsEl = document.getElementById('result-rewards');
     const nextBtn = document.getElementById('next-btn');
 
-    if (result.passed) {
+    const { passed, errors, channelWidth } = result;
+    const lightOcclusion = result.lightOcclusion || result.lightStats || {};
+    const polyCount = result.polyCount || result.polyStats || {};
+
+    const lightTotal = lightOcclusion.totalLights !== undefined ? lightOcclusion.totalLights : (lightOcclusion.total || 0);
+    const lightUnobstructed = lightOcclusion.totalLights !== undefined
+      ? (lightOcclusion.totalLights - (lightOcclusion.occludedLights || 0))
+      : (lightOcclusion.unobstructed || 0);
+    const polyCurrent = polyCount.current || 0;
+
+    if (passed) {
       titleEl.textContent = '🎉 恭喜通过！';
       summaryEl.innerHTML = `
         <div class="result-icon success">✓</div>
@@ -700,15 +800,15 @@ class ThreeDEditor {
         <div class="result-stats">
           <div class="result-stat">
             <span class="stat-label">最小通道宽度</span>
-            <span class="stat-value success">${result.channelWidth.minWidth.toFixed(1)}m</span>
+            <span class="stat-value success">${channelWidth.minWidth.toFixed(1)}m</span>
           </div>
           <div class="result-stat">
             <span class="stat-label">正常光源</span>
-            <span class="stat-value success">${result.lightStats.unobstructed}/${result.lightStats.total}</span>
+            <span class="stat-value success">${lightUnobstructed}/${lightTotal}</span>
           </div>
           <div class="result-stat">
             <span class="stat-label">总面数</span>
-            <span class="stat-value success">${result.polyStats.current.toLocaleString()}</span>
+            <span class="stat-value success">${polyCurrent.toLocaleString()}</span>
           </div>
         </div>
       `;
@@ -737,21 +837,25 @@ class ThreeDEditor {
       titleEl.textContent = '❌ 搭建不通过';
       summaryEl.innerHTML = `
         <div class="result-icon error">✗</div>
-        <h3>存在 ${result.errors.length} 项违规</h3>
+        <h3>存在 ${errors ? errors.length : 0} 项违规</h3>
         <p>请调整场景布局后重新提交校验</p>
       `;
 
       detailsEl.innerHTML = `
         <div class="result-errors">
-          ${result.errors.map(err => `
-            <div class="result-error-item severity-${err.severity}">
-              <span class="error-type">${err.type === 'channel' ? '📏 通道' : err.type === 'light' ? '💡 光源' : '📊 面数'}</span>
-              <div class="error-info">
-                <strong>${err.title}</strong>
-                <p>${err.description}</p>
+          ${(errors || []).map(err => {
+            const title = err.title || err.message || '违规项';
+            const description = err.description || err.suggestion || '';
+            return `
+              <div class="result-error-item severity-${err.severity || 'error'}">
+                <span class="error-type">${err.type === 'channel' ? '📏 通道' : err.type === 'light' ? '💡 光源' : '📊 面数'}</span>
+                <div class="error-info">
+                  <strong>${title}</strong>
+                  <p>${description}</p>
+                </div>
               </div>
-            </div>
-          `).join('')}
+            `;
+          }).join('')}
         </div>
       `;
 
@@ -845,5 +949,5 @@ class ThreeDEditor {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  new ThreeDEditor();
+  window.editor = new ThreeDEditor();
 });

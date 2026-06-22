@@ -1,0 +1,11 @@
+{
+  "levelId": 1,
+  "objects": [
+    {"id":"test1","assetId":"wall_straight","position":{"x":1,"y":1.25,"z":3},"rotation":{"x":0,"y":1.57,"z":0},"scale":{"x":1,"y":1,"z":1}},
+    {"id":"test2","assetId":"wall_straight","position":{"x":7,"y":1.25,"z":3},"rotation":{"x":0,"y":1.57,"z":0},"scale":{"x":1,"y":1,"z":1}},
+    {"id":"test3","assetId":"booth_rect_medium","position":{"x":2.5,"y":0.45,"z":2},"rotation":{"x":0,"y":0,"z":0},"scale":{"x":1,"y":1,"z":1}},
+    {"id":"test4","assetId":"booth_rect_medium","position":{"x":5.5,"y":0.45,"z":2},"rotation":{"x":0,"y":0,"z":0},"scale":{"x":1,"y":1,"z":1}},
+    {"id":"test5","assetId":"light_spot","position":{"x":4,"y":3,"z":1},"rotation":{"x":0,"y":0,"z":0},"scale":{"x":1,"y":1,"z":1}},
+    {"id":"test6","assetId":"light_spot","position":{"x":4,"y":3,"z":5},"rotation":{"x":0,"y":0,"z":0},"scale":{"x":1,"y":1,"z":1}}
+  ]
+}

@@ -8,9 +8,28 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r160/three.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/js/controls/OrbitControls.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/js/controls/DragControls.js"></script>
+  <script src="vendor/three.r160.min.js"></script>
+  <script src="vendor/orbitcontrols.r160.js"></script>
+  <script>
+    (function ensureThreeExports() {
+      var maxWait = 5000;
+      var start = Date.now();
+      function check() {
+        if (typeof THREE !== 'undefined') {
+          if (typeof THREE.OrbitControls === 'undefined' && typeof window.OrbitControls !== 'undefined') {
+            THREE.OrbitControls = window.OrbitControls;
+          }
+          return true;
+        }
+        if (Date.now() - start > maxWait) {
+          console.error('Three.js 加载超时');
+          return false;
+        }
+        setTimeout(check, 50);
+      }
+      check();
+    })();
+  </script>
 </head>
 <body class="editor-page">
   <div id="editor-app">

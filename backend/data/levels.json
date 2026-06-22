@@ -3,6 +3,7 @@
     "id": 1,
     "name": "入门展厅",
     "description": "学习基础的展厅布局概念，掌握通道宽度和模型面数的基本约束",
+    "difficulty": 1,
     "sceneSize": { "width": 8, "depth": 6 },
     "constraints": {
       "minChannelWidth": 1.5,
@@ -13,12 +14,15 @@
       "wall_straight", "wall_corner", "booth_rect_small", "booth_rect_medium",
       "booth_square", "light_spot", "light_point", "floor_basic"
     ],
+    "rewardText": "解锁玻璃展柜构件",
+    "unlockedAssets": ["decoration_glass_case"],
     "reward": ["decoration_glass_case"]
   },
   {
     "id": 2,
     "name": "标准展厅",
     "description": "掌握光源设计和空间布局的进阶技巧，学习处理更复杂的约束条件",
+    "difficulty": 2,
     "sceneSize": { "width": 10, "depth": 8 },
     "constraints": {
       "minChannelWidth": 1.8,
@@ -32,12 +36,15 @@
       "light_point", "light_spot_warm", "floor_basic", "floor_pattern",
       "decoration_glass_case"
     ],
+    "rewardText": "解锁金属展台与轨道灯构件",
+    "unlockedAssets": ["booth_metal", "light_track"],
     "reward": ["booth_metal", "light_track"]
   },
   {
     "id": 3,
     "name": "精品展厅",
     "description": "综合运用所有设计技能，打造符合专业标准的精品展厅",
+    "difficulty": 3,
     "sceneSize": { "width": 12, "depth": 10 },
     "constraints": {
       "minChannelWidth": 2.0,
@@ -53,6 +60,8 @@
       "light_track", "floor_basic", "floor_pattern", "floor_marble",
       "decoration_glass_case", "decoration_sculpture", "decoration_plant"
     ],
+    "rewardText": "解锁高精度雕塑与绿植模型",
+    "unlockedAssets": ["decoration_sculpture_highpoly", "decoration_plant_highpoly"],
     "reward": ["decoration_sculpture_highpoly", "decoration_plant_highpoly"]
   }
 ]
