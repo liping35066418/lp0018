@@ -1,7 +1,7 @@
 #!/bin/bash
 
 echo "=========================================="
-echo "  🏃 横版跑酷H5游戏 - 启动脚本"
+echo "  �️ 3D展厅搭建实训系统 - 启动脚本"
 echo "=========================================="
 echo ""
 
@@ -9,6 +9,19 @@ ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 echo "📦 检查并安装依赖..."
 echo ""
+
+if [ ! -d "$ROOT_DIR/node_modules" ]; then
+  echo "🔧 安装根目录依赖..."
+  cd "$ROOT_DIR" && npm install --silent
+  if [ $? -eq 0 ]; then
+    echo "✅ 根目录依赖安装完成"
+  else
+    echo "❌ 根目录依赖安装失败"
+    exit 1
+  fi
+else
+  echo "✅ 根目录依赖已存在"
+fi
 
 if [ ! -d "$ROOT_DIR/backend/node_modules" ]; then
   echo "🔧 安装后端依赖..."
@@ -39,8 +52,8 @@ fi
 echo ""
 echo "🚀 启动服务..."
 echo ""
-echo "📡 后端服务: http://localhost:9618"
-echo "🌐 前端页面: http://localhost:3618"
+echo "📡 后端校验引擎: http://localhost:9918"
+echo "🌐 前端3D画布:   http://localhost:3917"
 echo ""
 echo "💡 提示: 按 Ctrl+C 停止所有服务"
 echo "=========================================="

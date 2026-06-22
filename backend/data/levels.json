@@ -1,0 +1,58 @@
+[
+  {
+    "id": 1,
+    "name": "入门展厅",
+    "description": "学习基础的展厅布局概念，掌握通道宽度和模型面数的基本约束",
+    "sceneSize": { "width": 8, "depth": 6 },
+    "constraints": {
+      "minChannelWidth": 1.5,
+      "maxPolyCount": 50000,
+      "minLightCount": 2
+    },
+    "availableAssets": [
+      "wall_straight", "wall_corner", "booth_rect_small", "booth_rect_medium",
+      "booth_square", "light_spot", "light_point", "floor_basic"
+    ],
+    "reward": ["decoration_glass_case"]
+  },
+  {
+    "id": 2,
+    "name": "标准展厅",
+    "description": "掌握光源设计和空间布局的进阶技巧，学习处理更复杂的约束条件",
+    "sceneSize": { "width": 10, "depth": 8 },
+    "constraints": {
+      "minChannelWidth": 1.8,
+      "maxPolyCount": 80000,
+      "minLightCount": 3,
+      "minLightDistance": 1.0
+    },
+    "availableAssets": [
+      "wall_straight", "wall_corner", "wall_curved", "booth_rect_small",
+      "booth_rect_medium", "booth_square", "booth_round", "light_spot",
+      "light_point", "light_spot_warm", "floor_basic", "floor_pattern",
+      "decoration_glass_case"
+    ],
+    "reward": ["booth_metal", "light_track"]
+  },
+  {
+    "id": 3,
+    "name": "精品展厅",
+    "description": "综合运用所有设计技能，打造符合专业标准的精品展厅",
+    "sceneSize": { "width": 12, "depth": 10 },
+    "constraints": {
+      "minChannelWidth": 2.0,
+      "maxPolyCount": 120000,
+      "minLightCount": 4,
+      "minLightDistance": 1.2,
+      "maxLightAngle": 45
+    },
+    "availableAssets": [
+      "wall_straight", "wall_corner", "wall_curved", "wall_glass",
+      "booth_rect_small", "booth_rect_medium", "booth_square", "booth_round",
+      "booth_metal", "light_spot", "light_point", "light_spot_warm",
+      "light_track", "floor_basic", "floor_pattern", "floor_marble",
+      "decoration_glass_case", "decoration_sculpture", "decoration_plant"
+    ],
+    "reward": ["decoration_sculpture_highpoly", "decoration_plant_highpoly"]
+  }
+]

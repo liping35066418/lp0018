@@ -1,0 +1,203 @@
+[
+  {
+    "id": "wall_straight",
+    "name": "直墙体",
+    "category": "wall",
+    "polyCount": 12,
+    "size": { "width": 2, "height": 2.5, "depth": 0.2 },
+    "color": "#e0e0e0",
+    "isHighPrecision": false
+  },
+  {
+    "id": "wall_corner",
+    "name": "转角墙体",
+    "category": "wall",
+    "polyCount": 24,
+    "size": { "width": 2, "height": 2.5, "depth": 2 },
+    "color": "#d0d0d0",
+    "isHighPrecision": false
+  },
+  {
+    "id": "wall_curved",
+    "name": "弧形墙体",
+    "category": "wall",
+    "polyCount": 128,
+    "size": { "width": 3, "height": 2.5, "depth": 1.5 },
+    "color": "#c8c8c8",
+    "isHighPrecision": false
+  },
+  {
+    "id": "wall_glass",
+    "name": "玻璃墙",
+    "category": "wall",
+    "polyCount": 12,
+    "size": { "width": 2, "height": 2.5, "depth": 0.1 },
+    "color": "#88ccff",
+    "isHighPrecision": false
+  },
+  {
+    "id": "booth_rect_small",
+    "name": "小矩形展台",
+    "category": "booth",
+    "polyCount": 24,
+    "size": { "width": 1, "height": 0.9, "depth": 1 },
+    "color": "#8b4513",
+    "isHighPrecision": false
+  },
+  {
+    "id": "booth_rect_medium",
+    "name": "中矩形展台",
+    "category": "booth",
+    "polyCount": 48,
+    "size": { "width": 1.5, "height": 0.9, "depth": 1.2 },
+    "color": "#a0522d",
+    "isHighPrecision": false
+  },
+  {
+    "id": "booth_square",
+    "name": "方形展台",
+    "category": "booth",
+    "polyCount": 36,
+    "size": { "width": 1.2, "height": 0.9, "depth": 1.2 },
+    "color": "#654321",
+    "isHighPrecision": false
+  },
+  {
+    "id": "booth_round",
+    "name": "圆形展台",
+    "category": "booth",
+    "polyCount": 192,
+    "size": { "width": 1.2, "height": 0.9, "depth": 1.2 },
+    "color": "#d2691e",
+    "isHighPrecision": false
+  },
+  {
+    "id": "booth_metal",
+    "name": "金属展台",
+    "category": "booth",
+    "polyCount": 256,
+    "size": { "width": 1.2, "height": 0.8, "depth": 1 },
+    "color": "#708090",
+    "isHighPrecision": true
+  },
+  {
+    "id": "light_spot",
+    "name": "冷光聚光灯",
+    "category": "light",
+    "polyCount": 32,
+    "size": { "width": 0.3, "height": 0.5, "depth": 0.3 },
+    "color": "#ffffff",
+    "lightColor": "#ffffff",
+    "intensity": 1.0,
+    "angle": 45,
+    "isHighPrecision": false
+  },
+  {
+    "id": "light_spot_warm",
+    "name": "暖光聚光灯",
+    "category": "light",
+    "polyCount": 32,
+    "size": { "width": 0.3, "height": 0.5, "depth": 0.3 },
+    "color": "#fff5e6",
+    "lightColor": "#ffd700",
+    "intensity": 0.9,
+    "angle": 45,
+    "isHighPrecision": false
+  },
+  {
+    "id": "light_point",
+    "name": "点光源",
+    "category": "light",
+    "polyCount": 16,
+    "size": { "width": 0.2, "height": 0.2, "depth": 0.2 },
+    "color": "#ffffaa",
+    "lightColor": "#ffffff",
+    "intensity": 0.8,
+    "distance": 5,
+    "isHighPrecision": false
+  },
+  {
+    "id": "light_track",
+    "name": "轨道灯",
+    "category": "light",
+    "polyCount": 128,
+    "size": { "width": 1.5, "height": 0.15, "depth": 0.1 },
+    "color": "#333333",
+    "lightColor": "#ffffff",
+    "intensity": 1.2,
+    "angle": 30,
+    "isHighPrecision": true
+  },
+  {
+    "id": "floor_basic",
+    "name": "基础地板",
+    "category": "decoration",
+    "polyCount": 2,
+    "size": { "width": 2, "height": 0.05, "depth": 2 },
+    "color": "#696969",
+    "isHighPrecision": false
+  },
+  {
+    "id": "floor_pattern",
+    "name": "花纹地板",
+    "category": "decoration",
+    "polyCount": 32,
+    "size": { "width": 2, "height": 0.05, "depth": 2 },
+    "color": "#808080",
+    "isHighPrecision": false
+  },
+  {
+    "id": "floor_marble",
+    "name": "大理石地板",
+    "category": "decoration",
+    "polyCount": 64,
+    "size": { "width": 2, "height": 0.05, "depth": 2 },
+    "color": "#f5f5f5",
+    "isHighPrecision": true
+  },
+  {
+    "id": "decoration_glass_case",
+    "name": "玻璃展柜",
+    "category": "decoration",
+    "polyCount": 128,
+    "size": { "width": 0.8, "height": 1.2, "depth": 0.4 },
+    "color": "#add8e6",
+    "isHighPrecision": true
+  },
+  {
+    "id": "decoration_sculpture",
+    "name": "抽象雕塑",
+    "category": "decoration",
+    "polyCount": 512,
+    "size": { "width": 0.6, "height": 1.5, "depth": 0.6 },
+    "color": "#2f4f4f",
+    "isHighPrecision": true
+  },
+  {
+    "id": "decoration_plant",
+    "name": "装饰绿植",
+    "category": "decoration",
+    "polyCount": 384,
+    "size": { "width": 0.8, "height": 1.2, "depth": 0.8 },
+    "color": "#228b22",
+    "isHighPrecision": true
+  },
+  {
+    "id": "decoration_sculpture_highpoly",
+    "name": "高精度雕塑",
+    "category": "decoration",
+    "polyCount": 8000,
+    "size": { "width": 0.8, "height": 1.8, "depth": 0.8 },
+    "color": "#4a4a4a",
+    "isHighPrecision": true
+  },
+  {
+    "id": "decoration_plant_highpoly",
+    "name": "高精度绿植",
+    "category": "decoration",
+    "polyCount": 6000,
+    "size": { "width": 1, "height": 1.5, "depth": 1 },
+    "color": "#2e8b57",
+    "isHighPrecision": true
+  }
+]

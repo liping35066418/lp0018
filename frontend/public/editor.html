@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>3D展厅搭建实训系统 - 编辑器</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r160/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/js/controls/DragControls.js"></script>
+</head>
+<body class="editor-page">
+  <div id="editor-app">
+    <header class="editor-header">
+      <div class="header-left">
+        <button class="back-btn" id="back-btn">
+          <span>←</span>
+          <span>返回关卡</span>
+        </button>
+        <div class="level-info">
+          <h2 class="level-name" id="level-name">加载中...</h2>
+          <span class="level-desc" id="level-desc"></span>
+        </div>
+      </div>
+      <div class="header-center">
+        <div class="scene-stats">
+          <div class="stat-item">
+            <span class="stat-label">构件数量</span>
+            <span class="stat-value mono" id="object-count">0</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">总面数</span>
+            <span class="stat-value mono" id="poly-count">0</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">面数上限</span>
+            <span class="stat-value mono" id="poly-limit">0</span>
+          </div>
+        </div>
+      </div>
+      <div class="header-right">
+        <button class="btn btn-secondary" id="clear-btn">
+          <span>🗑️</span>
+          <span>清空场景</span>
+        </button>
+        <button class="btn btn-primary" id="validate-btn">
+          <span>✓</span>
+          <span>提交校验</span>
+        </button>
+      </div>
+    </header>
+
+    <div class="editor-body">
+      <aside class="asset-panel" id="asset-panel">
+        <div class="panel-header">
+          <h3>素材库</h3>
+        </div>
+        <div class="category-tabs">
+          <button class="category-tab active" data-category="wall">
+            <span>🧱</span> 墙体
+          </button>
+          <button class="category-tab" data-category="booth">
+            <span>🪑</span> 展台
+          </button>
+          <button class="category-tab" data-category="light">
+            <span>💡</span> 灯光
+          </button>
+          <button class="category-tab" data-category="decoration">
+            <span>🎨</span> 装饰
+          </button>
+        </div>
+        <div class="asset-list" id="asset-list">
+          <div class="asset-loading">
+            <div class="loading-spinner small"></div>
+            <span>加载构件...</span>
+          </div>
+        </div>
+        <div class="panel-footer">
+          <p class="tip">💡 拖拽构件到场景中进行搭建</p>
+        </div>
+      </aside>
+
+      <main class="viewport-container">
+        <div class="viewport" id="viewport">
+          <canvas id="three-canvas"></canvas>
+          <div class="viewport-overlay">
+            <div class="viewport-hint" id="viewport-hint">
+              🖱️ 鼠标左键拖拽旋转 | 滚轮缩放 | 右键平移
+            </div>
+          </div>
+        </div>
+        <div class="transform-controls" id="transform-controls">
+          <button class="transform-btn active" data-mode="translate" title="平移 (G)">
+            <span>↔️</span>
+          </button>
+          <button class="transform-btn" data-mode="rotate" title="旋转 (R)">
+            <span>🔄</span>
+          </button>
+          <button class="transform-btn" data-mode="scale" title="缩放 (S)">
+            <span>📐</span>
+          </button>
+          <div class="transform-divider"></div>
+          <button class="transform-btn" data-action="delete" title="删除 (Delete)">
+            <span>🗑️</span>
+          </button>
+        </div>
+      </main>
+
+      <aside class="validation-panel" id="validation-panel">
+        <div class="panel-header">
+          <h3>约束校验</h3>
+          <span class="auto-check-badge" id="auto-check-badge">
+            <span class="check-dot"></span>
+            实时检查
+          </span>
+        </div>
+        
+        <div class="constraint-list">
+          <div class="constraint-item" id="constraint-channel">
+            <div class="constraint-header">
+              <div class="constraint-icon">📏</div>
+              <div class="constraint-info">
+                <div class="constraint-name">通道宽度</div>
+                <div class="constraint-desc">最小通行宽度</div>
+              </div>
+              <div class="constraint-status" id="channel-status">
+                <span class="status-pending">待检测</span>
+              </div>
+            </div>
+            <div class="constraint-progress">
+              <div class="progress-bar">
+                <div class="progress-fill" id="channel-progress"></div>
+              </div>
+              <div class="progress-text">
+                <span class="mono" id="channel-current">0.0m</span>
+                <span class="mono">≥ <span id="channel-required">1.5m</span></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="constraint-item" id="constraint-light">
+            <div class="constraint-header">
+              <div class="constraint-icon">💡</div>
+              <div class="constraint-info">
+                <div class="constraint-name">光源遮挡</div>
+                <div class="constraint-desc">光线无遮挡</div>
+              </div>
+              <div class="constraint-status" id="light-status">
+                <span class="status-pending">待检测</span>
+              </div>
+            </div>
+            <div class="constraint-progress">
+              <div class="progress-bar">
+                <div class="progress-fill" id="light-progress"></div>
+              </div>
+              <div class="progress-text">
+                <span class="mono" id="light-current">0/0</span>
+                <span class="mono">正常光源</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="constraint-item" id="constraint-poly">
+            <div class="constraint-header">
+              <div class="constraint-icon">📊</div>
+              <div class="constraint-info">
+                <div class="constraint-name">模型面数</div>
+                <div class="constraint-desc">总三角面数</div>
+              </div>
+              <div class="constraint-status" id="poly-status">
+                <span class="status-pending">待检测</span>
+              </div>
+            </div>
+            <div class="constraint-progress">
+              <div class="progress-bar">
+                <div class="progress-fill" id="poly-progress"></div>
+              </div>
+              <div class="progress-text">
+                <span class="mono" id="poly-current">0</span>
+                <span class="mono">≤ <span id="poly-max">50000</span></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="quick-actions">
+          <h4>快速验证</h4>
+          <div class="quick-test-btns">
+            <button class="quick-test-btn" data-test="narrow_channel">狭窄通道</button>
+            <button class="quick-test-btn" data-test="high_polycount">面数超标</button>
+            <button class="quick-test-btn" data-test="light_occlusion">光源遮挡</button>
+            <button class="quick-test-btn danger" data-test="all">综合违规</button>
+          </div>
+        </div>
+
+        <div class="validation-errors" id="validation-errors">
+          <h4>违规项</h4>
+          <div class="errors-list" id="errors-list">
+            <p class="empty-text">暂无违规项</p>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <div class="modal-overlay hidden" id="result-modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2 id="result-title">校验结果</h2>
+          <button class="modal-close" id="modal-close">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="result-summary" id="result-summary"></div>
+          <div class="result-details" id="result-details"></div>
+          <div class="result-rewards hidden" id="result-rewards"></div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" id="continue-btn">继续编辑</button>
+          <button class="btn btn-primary hidden" id="next-btn">下一关 →</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+  </div>
+
+  <script src="js/editor.js"></script>
+</body>
+</html>

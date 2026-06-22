@@ -1,142 +1,99 @@
 const express = require('express');
 const cors = require('cors');
-const GameEngine = require('./gameEngine');
+const ValidationEngine = require('./validationEngine');
 
 const app = express();
-const PORT = 9618;
+const PORT = 9918;
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 
-const gameEngine = new GameEngine();
+const validationEngine = new ValidationEngine();
 
-const activeGames = new Map();
+app.get('/api/levels', (req, res) => {
+  res.json({
+    success: true,
+    data: validationEngine.getLevels()
+  });
+});
+
+app.get('/api/assets', (req, res) => {
+  const levelId = req.query.level ? parseInt(req.query.level) : null;
+  res.json({
+    success: true,
+    data: validationEngine.getAssets(levelId)
+  });
+});
+
+app.post('/api/validate', (req, res) => {
+  const { levelId, objects } = req.body;
+  
+  if (!levelId || !Array.isArray(objects)) {
+    return res.json({
+      success: false,
+      error: '请求参数无效'
+    });
+  }
+  
+  if (objects.length > 500) {
+    return res.json({
+      success: false,
+      error: '场景对象数量过多，疑似作弊'
+    });
+  }
+  
+  const result = validationEngine.validate(levelId, objects);
+  res.json(result);
+});
+
+app.post('/api/generate-test-scene', (req, res) => {
+  const { levelId, testType } = req.body;
+  
+  if (!levelId || !testType) {
+    return res.json({
+      success: false,
+      error: '请求参数无效'
+    });
+  }
+  
+  const validTypes = ['narrow_channel', 'high_polycount', 'light_occlusion', 'all'];
+  if (!validTypes.includes(testType)) {
+    return res.json({
+      success: false,
+      error: '无效的测试类型'
+    });
+  }
+  
+  const result = validationEngine.generateTestScene(levelId, testType);
+  res.json(result);
+});
 
 app.get('/api/config', (req, res) => {
   res.json({
     success: true,
-    data: gameEngine.getGameConfig()
-  });
-});
-
-app.post('/api/game/start', (req, res) => {
-  const { playerName } = req.body;
-  const gameId = Date.now().toString(36) + Math.random().toString(36).substr(2);
-  const seed = Math.floor(Math.random() * 0x7fffffff);
-  
-  const state = gameEngine.createState(seed);
-  
-  const gameRecord = {
-    id: gameId,
-    seed,
-    playerName: playerName || '匿名玩家',
-    createdAt: Date.now(),
-    submitted: false
-  };
-  
-  activeGames.set(gameId, gameRecord);
-  
-  const initialState = {
-    score: state.score,
-    lives: state.lives,
-    combo: state.combo,
-    timeLeft: state.timeLeft,
-    difficultyLevel: state.difficultyLevel,
-    player: { ...state.player },
-    obstacles: state.obstacles.map(o => ({ ...o })),
-    items: state.items.map(i => ({ ...i }))
-  };
-  
-  res.json({
-    success: true,
     data: {
-      gameId,
-      seed,
-      config: gameEngine.getGameConfig(),
-      initialState
-    }
-  });
-});
-
-app.post('/api/game/end', (req, res) => {
-  const { gameId, playerName, actions, clientScore } = req.body;
-  const game = activeGames.get(gameId);
-  
-  if (!game) {
-    return res.json({ success: false, error: '游戏不存在或已结束' });
-  }
-  
-  if (game.submitted) {
-    return res.json({ success: false, error: '该游戏已提交过分数' });
-  }
-  
-  if (!Array.isArray(actions)) {
-    return res.json({ success: false, error: '操作记录无效' });
-  }
-  
-  if (actions.length > 50000) {
-    return res.json({ success: false, error: '操作记录过长，疑似作弊' });
-  }
-  
-  const result = gameEngine.replay(game.seed, actions);
-  
-  game.submitted = true;
-  activeGames.delete(gameId);
-  
-  const finalScore = result.score;
-  const timeSurvivedSec = Math.floor(result.timeSurvived / 1000);
-  const rank = gameEngine.submitHighScore(
-    game.playerName || playerName || '匿名玩家',
-    finalScore,
-    timeSurvivedSec,
-    result.dashCount,
-    result.dashBreakCount
-  );
-  const highScores = gameEngine.getHighScores();
-  
-  res.json({
-    success: true,
-    data: {
-      finalScore,
-      rank,
-      highScores,
-      maxLives: gameEngine.config.maxLives,
-      verified: true,
-      timeSurvived: timeSurvivedSec,
-      livesRemaining: result.lives,
-      dashCount: result.dashCount,
-      dashBreakCount: result.dashBreakCount
-    }
-  });
-});
-
-app.get('/api/highscores', (req, res) => {
-  res.json({
-    success: true,
-    data: gameEngine.getHighScores()
-  });
-});
-
-app.get('/api/difficulty/:elapsedTime', (req, res) => {
-  const elapsedTime = parseInt(req.params.elapsedTime);
-  res.json({
-    success: true,
-    data: {
-      level: gameEngine.getDifficultyLevel(elapsedTime),
-      speed: gameEngine.getCurrentSpeed(elapsedTime),
-      obstacleInterval: gameEngine.getObstacleSpawnInterval(elapsedTime),
-      itemInterval: gameEngine.getItemSpawnInterval(elapsedTime)
+      backendPort: PORT,
+      frontendPort: 3917,
+      version: '1.0.0',
+      features: ['channel_validation', 'light_occlusion', 'polycount_validation']
     }
   });
 });
 
 app.listen(PORT, () => {
-  console.log(`🏃 跑酷游戏后端服务启动成功!`);
+  console.log(`🏗️  3D展厅搭建校验系统 - 后端服务启动成功!`);
   console.log(`📍 服务地址: http://localhost:${PORT}`);
   console.log(`📋 可用接口:`);
-  console.log(`   GET  /api/config - 获取游戏配置`);
-  console.log(`   POST /api/game/start - 开始新游戏`);
-  console.log(`   POST /api/game/end - 结束游戏并提交分数（后端重放验证）`);
-  console.log(`   GET  /api/highscores - 获取排行榜`);
-  console.log(`   🔒 分数由后端独立重放验证，前端无法伪造`);
+  console.log(`   GET  /api/config - 获取系统配置`);
+  console.log(`   GET  /api/levels - 获取关卡列表`);
+  console.log(`   GET  /api/assets - 获取构件库`);
+  console.log(`   POST /api/validate - 提交场景校验`);
+  console.log(`   POST /api/generate-test-scene - 生成快速验证场景`);
+  console.log(``);
+  console.log(`🔍 校验引擎已就绪:`);
+  console.log(`   ✅ 通道宽度校验 - 洪水填充 + 距离变换算法`);
+  console.log(`   ✅ 光源遮挡校验 - 光线步进 + AABB碰撞检测`);
+  console.log(`   ✅ 模型面数校验 - 缩放加权面数统计`);
+  console.log(``);
+  console.log(`🎮 前端服务请在 http://localhost:3917 访问`);
 });

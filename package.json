@@ -1,7 +1,7 @@
 {
-  "name": "parkour-h5-game",
+  "name": "3d-exhibition-trainer",
   "version": "1.0.0",
-  "description": "横版跑酷H5游戏 - 前后端分离架构",
+  "description": "3D展厅搭建实训系统 - 面向3D设计师岗前实训的多层空间约束校验平台",
   "scripts": {
     "install:all": "npm run install:backend && npm run install:frontend",
     "install:backend": "cd backend && npm install",
